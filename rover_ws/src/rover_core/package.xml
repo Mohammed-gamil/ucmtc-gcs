@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>rover_core</name>
+  <version>0.0.1</version>
+  <description>Rover Core - ROS2 Hardware Integration and Telemetry Package for UCMTC Rover</description>
+
+  <maintainer email="rover@ucmtc.org">UCMTC Rover Team</maintainer>
+  <license>MIT</license>
+
+  <url type="repository">https://github.com/ucmtc/rover_core</url>
+  <url type="bugtracker">https://github.com/ucmtc/rover_core/issues</url>
+  <author email="rover@ucmtc.org">UCMTC Rover Team</author>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+
+
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+  <test_depend>pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

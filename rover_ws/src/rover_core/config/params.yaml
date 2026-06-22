@@ -1,0 +1,37 @@
+### rover_core node parameters — loaded at launch via --params-file
+### All nodes declare these in their constructor with types, descriptions,
+### and ranges. Override per-deployment without recompiling.
+
+navigation_node:
+  ros__parameters:
+    publish_rate_hz: 10.0      # [1.0, 50.0] Nav telemetry publish rate
+    gps_serial_port: "/dev/ttyUSB0"
+    imu_serial_port: "/dev/ttyUSB1"
+    stale_data_timeout_sec: 1.5  # Seconds before a section is considered stale
+
+safety_node:
+  ros__parameters:
+    publish_rate_hz: 20.0      # [10.0, 100.0] Safety check + publish rate
+    estop_gpio_pin: 17         # BCM GPIO pin for hardware e-stop
+    collision_threshold_m: 0.3 # [0.1, 2.0] Obstacle distance trigger
+    safety_deadline_ms: 500     # [50, 2000] QoS deadline for /rover/telemetry/safety (ms)
+
+vision_node:
+  ros__parameters:
+    publish_rate_hz: 30.0      # [10.0, 60.0] Vision inference publish rate
+    camera_index: 0            # OpenCV camera device index
+    ai_model_path: ""          # Path to ONNX/TRT model; empty = simulate
+    confidence_threshold: 0.55 # [0.0, 1.0] Min confidence for detection
+
+motor_control_node:
+  ros__parameters:
+    publish_rate_hz: 5.0       # [1.0, 20.0] Heartbeat publish rate
+    max_speed_kmh: 15.0        # [0.0, 30.0] Hard speed cap
+
+telemetry_aggregator:
+  ros__parameters:
+    publish_rate_hz: 10.0      # [1.0, 30.0] Aggregated payload publish rate
+    nav_stale_sec: 1.5
+    safety_stale_sec: 1.5
+    vision_stale_sec: 1.5
+    control_stale_sec: 2.5

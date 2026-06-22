@@ -1,0 +1,155 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://ucmtc.local/schemas/telemetry_payload.schema.json",
+  "title": "UCMTC Rover Telemetry Payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "Navigation",
+    "Safety",
+    "Vision",
+    "Jetson",
+    "Communication",
+    "ROS"
+  ],
+  "properties": {
+    "Navigation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "speed_kmh",
+        "heading_deg",
+        "pos_lat",
+        "pos_lon",
+        "dist_traveled_m",
+        "wp_current",
+        "wp_error_m",
+        "wp_status"
+      ],
+      "properties": {
+        "speed_kmh": { "type": "number" },
+        "heading_deg": { "type": "number" },
+        "pos_lat": { "type": "number" },
+        "pos_lon": { "type": "number" },
+        "dist_traveled_m": { "type": "number" },
+        "wp_current": { "type": "integer" },
+        "wp_error_m": { "type": "number" },
+        "wp_status": { "type": "string" }
+      }
+    },
+    "Safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "light_state",
+        "estop_mech_armed",
+        "estop_wire_armed",
+        "estop_triggered",
+        "is_blocked",
+        "collision_detected",
+        "border_crossed",
+        "border_partial",
+        "obstacle_touched"
+      ],
+      "properties": {
+        "mode": { "type": "string" },
+        "light_state": { "type": "string" },
+        "estop_mech_armed": { "type": "boolean" },
+        "estop_wire_armed": { "type": "boolean" },
+        "estop_triggered": { "type": "boolean" },
+        "is_blocked": { "type": "boolean" },
+        "collision_detected": { "type": "boolean" },
+        "border_crossed": { "type": "boolean" },
+        "border_partial": { "type": "boolean" },
+        "obstacle_touched": { "type": "boolean" }
+      }
+    },
+    "Vision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "img_confidence",
+        "img_detected",
+        "laser_active",
+        "img_elapsed_sec",
+        "img_task_status",
+        "lane_detected",
+        "obstacles_count",
+        "fps_vision"
+      ],
+      "properties": {
+        "img_confidence": { "type": "number" },
+        "img_detected": { "type": "boolean" },
+        "laser_active": { "type": "boolean" },
+        "img_elapsed_sec": { "type": "integer" },
+        "img_task_status": { "type": "string" },
+        "lane_detected": { "type": "boolean" },
+        "obstacles_count": { "type": "integer" },
+        "fps_vision": { "type": "number" }
+      }
+    },
+    "Jetson": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cpu_pct",
+        "gpu_pct",
+        "ram_pct",
+        "temp_c",
+        "bat_pct",
+        "bat_voltage",
+        "uptime_sec"
+      ],
+      "properties": {
+        "cpu_pct": { "type": "number" },
+        "gpu_pct": { "type": "number" },
+        "ram_pct": { "type": "number" },
+        "temp_c": { "type": "number" },
+        "bat_pct": { "type": "number" },
+        "bat_voltage": { "type": "number" },
+        "uptime_sec": { "type": "integer" }
+      }
+    },
+    "Communication": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rtt_ms",
+        "channel_rssi",
+        "stream_fps",
+        "packet_loss_pct",
+        "heartbeat_seq",
+        "timestamp_ms"
+      ],
+      "properties": {
+        "rtt_ms": { "type": "integer" },
+        "channel_rssi": { "type": "integer" },
+        "stream_fps": { "type": "number" },
+        "packet_loss_pct": { "type": "number" },
+        "heartbeat_seq": { "type": "integer" },
+        "timestamp_ms": { "type": "integer" }
+      }
+    },
+    "ROS": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "node_lane_det",
+        "node_obs_avoid",
+        "node_wp_nav",
+        "node_img_recog",
+        "node_motor_ctrl",
+        "rosout_last"
+      ],
+      "properties": {
+        "node_lane_det": { "type": "boolean" },
+        "node_obs_avoid": { "type": "boolean" },
+        "node_wp_nav": { "type": "boolean" },
+        "node_img_recog": { "type": "boolean" },
+        "node_motor_ctrl": { "type": "boolean" },
+        "rosout_last": { "type": "string" }
+      }
+    }
+  }
+}

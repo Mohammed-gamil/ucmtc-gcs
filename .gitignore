@@ -1,0 +1,29 @@
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+
+# ROS 2 build artifacts
+rover_ws/build/
+rover_ws/install/
+rover_ws/log/
+.ccache/
+
+# IDE / System files
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Local CLI log files
+.skill-runs.log
+*.log

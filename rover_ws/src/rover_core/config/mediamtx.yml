@@ -1,0 +1,57 @@
+# MediaMTX Configuration for UCMTC Rover Video Streaming
+#
+# This YAML file configures the MediaMTX (formerly rtmp-simple-server)
+# for streaming video from the rover camera to the Ground Control Station.
+#
+# MediaMTX handles:
+# - RTMP/RTMPS video stream ingestion and relay
+# - HLS (HTTP Live Streaming) for browser-based playback
+# - Low-latency streaming protocols (WHIP/WHEP)
+# - Multiple simultaneous client connections
+#
+# The vision_node publishes video frames, which are then streamed via this server.
+
+# Listening port for RTMP connections
+rtmp:
+  enabled: true
+  address: ':1935'
+
+# Listening port for HLS (HTTP Live Streaming)
+hls:
+  enabled: true
+  address: ':8080'
+
+# Listening port for HTTP API and dashboard
+http:
+  enabled: true
+  address: ':9997'
+
+# Listening port for HTTPS
+https:
+  enabled: false
+  address: ':8321'
+
+# Path definitions and stream configurations
+paths:
+  # Main rover camera stream
+  rover_camera:
+    # Set to 'record' to save video to disk, 'publish' for relay, etc.
+    runOnDemand: false
+    
+    # Optional: maximum number of concurrent readers
+    maxReaders: 10
+    
+    # Optional: video codec (e.g., h264, h265)
+    # Will be auto-detected from source if not specified
+
+# Logging configuration
+logLevel: info
+
+# Optional: enable statistics (CPU, memory, bandwidth)
+metrics: true
+
+# Optional: enable API for programmatic control
+api: true
+
+# Optional: enable debugging
+# debug: true

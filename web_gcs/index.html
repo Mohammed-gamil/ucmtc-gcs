@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GCS — Tactical Ground Control Station</title>
+    <meta name="description" content="UCMTC Tactical Ground Control Station — real-time rover telemetry, ROS2 mesh, tactical camera HUD and mission command interface.">
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="gcs-wrap">
+
+    <!-- ═══════════════════════ TOP BAR (48px tall) ═══════════════════════ -->
+    <header class="topbar">
+        <div class="brand">
+            <span class="logo-mark"><i class="fa-solid fa-crosshairs"></i></span>
+            <span class="brand-text">GROUND STATION</span>
+            <span class="mission-pill">MISSION ARES-V</span>
+        </div>
+
+        <div class="topbar-center">
+            <div class="met-timer">
+                <span class="met-label">MET:</span>
+                <span class="met-val" id="mission-timer">00:00:00</span>
+            </div>
+            <div class="latency-readout" id="rtt-lbl">-- ms</div>
+            <div class="connection-dots">
+                <span class="chip-dot d-offline" id="telem-dot" title="Telemetry Status"></span>
+                <span class="chip-dot d-idle" id="safety-dot" title="Safety Status"></span>
+                <span class="chip-dot d-offline" id="mesh-dot" title="Team Mesh Status"></span>
+            </div>
+        </div>
+
+        <div class="topbar-right">
+            <!-- Battery % -->
+            <div class="stat-chip chip-bat">
+                <div class="bat-wrap">
+                    <div class="bat-body">
+                        <div class="bat-fill" id="bat-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <span id="bat-pct-lbl" class="stat-data">--%</span>
+            </div>
+            <!-- Signal Bars -->
+            <div class="signal-bars" id="signal-strength" title="Signal Strength">
+                <span class="bar bar-1"></span>
+                <span class="bar bar-2"></span>
+                <span class="bar bar-3"></span>
+                <span class="bar bar-4"></span>
+            </div>
+            <!-- Top E-Stop Button -->
+            <button id="btn-top-estop" class="btn-estop-pill">
+                <i class="fa-solid fa-circle-radiation"></i> E-STOP
+            </button>
+        </div>
+    </header>
+
+    <!-- ═══════════════════════ ALERT BANNER ═══════════════════════ -->
+    <div class="alert-banner" id="alerts-hub-banner">
+        <i class="fa-solid fa-triangle-exclamation alert-icon"></i>
+        <span id="alert-content">SYSTEM STANDBY — Awaiting telemetry handshake...</span>
+    </div>
+
+    <!-- ═══════════════════════ MAIN 3-COLUMN GRID ═══════════════════════ -->
+    <main class="main-grid">
+
+        <!-- ─────────── COLUMN 1: Navigation & Motion (280px) ─────────── -->
+        <div class="col" style="width: 280px;">
+            <!-- Navigation card -->
+            <div class="panel panel-cyan">
+                <div class="ph">
+                    <div class="ph-title">NAVIGATION & MOTION</div>
+                </div>
+                <div class="pb">
+                    <div class="compass-wrap">
+                        <svg class="compass-ring-svg" viewBox="0 0 150 150" id="compass-dial-svg">
+                            <!-- Outer ring -->
+                            <circle cx="75" cy="75" r="68" fill="none" stroke="#1C2333" stroke-width="1"/>
+                            <!-- Direction points -->
+                            <text x="75" y="16" text-anchor="middle" fill="#EF4444" font-size="10" font-family="Inter" font-weight="700">N</text>
+                            <text x="135" y="79" text-anchor="middle" fill="#6B7A99" font-size="8" font-family="Inter">E</text>
+                            <text x="75" y="142" text-anchor="middle" fill="#6B7A99" font-size="8" font-family="Inter">S</text>
+                            <text x="15" y="79" text-anchor="middle" fill="#6B7A99" font-size="8" font-family="Inter">W</text>
+                            <!-- Needle pointer -->
+                            <g id="compass-needle-group" style="transform-origin: 75px 75px">
+                                <line x1="75" y1="75" x2="75" y2="24" stroke="#00D4FF" stroke-width="1.5" stroke-linecap="round"/>
+                                <polygon points="75,18 72,25 78,25" fill="#00D4FF"/>
+                                <circle cx="75" cy="75" r="3.5" fill="#080C10" stroke="#00D4FF" stroke-width="1"/>
+                            </g>
+                        </svg>
+                    </div>
+                    <!-- Large Heading Readout -->
+                    <div class="heading-display">
+                        <span class="heading-num" id="heading-dial-val">0.0°</span>
+                        <span class="heading-cardinal-lbl" id="heading-cardinal">N</span>
+                    </div>
+
+                    <!-- Clean Stat Rows: Speed & Distance -->
+                    <div class="stat-rows">
+                        <div class="stat-row">
+                            <span class="stat-lbl">SPEED</span>
+                            <span class="stat-val" id="nav-speed">0.00 km/h</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-lbl">DISTANCE</span>
+                            <span class="stat-val" id="nav-distance">0.0 m</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Position & Waypoint card -->
+            <div class="panel panel-cyan">
+                <div class="ph">
+                    <div class="ph-title">POSITION</div>
+                </div>
+                <div class="pb">
+                    <div class="position-display">
+                        <span class="stat-lbl">COORDINATES</span>
+                        <div class="coords" id="nav-position">0.000000, 0.000000</div>
+                    </div>
+                    <div class="waypoint-status">
+                        <span class="stat-lbl">WAYPOINT STATUS</span>
+                        <div class="wp-chip-wrap">
+                            <span class="wp-val" id="nav-waypoint">WP 0 (IDLE)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COMMAND CONSOLE (Below Column 1) -->
+            <div class="panel panel-amber" id="command-console-panel">
+                <div class="ph">
+                    <div class="ph-title">COMMAND CONSOLE</div>
+                    <span class="ph-badge"> validated</span>
+                </div>
+                <div class="pb">
+                    <!-- Sliders side-by-side -->
+                    <div class="sliders-grid">
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <span class="stat-lbl">SPEED</span>
+                                <span class="val-mono" id="speed-bubble">5.0</span>
+                            </div>
+                            <input type="range" id="ctrl-speed" min="0" max="15" step="0.5" value="5.0">
+                        </div>
+                        <div class="slider-group">
+                            <div class="slider-header">
+                                <span class="stat-lbl">HEADING</span>
+                                <span class="val-mono" id="heading-bubble">0°</span>
+                            </div>
+                            <input type="range" id="ctrl-heading" min="0" max="359" step="1" value="0">
+                        </div>
+                    </div>
+
+                    <!-- Inputs side-by-side -->
+                    <div class="inputs-grid">
+                        <div class="input-group">
+                            <label class="stat-lbl">THROTTLE</label>
+                            <input type="number" id="ctrl-throttle" min="0" max="1" step="0.05" value="0.35">
+                        </div>
+                        <div class="input-group">
+                            <label class="stat-lbl">WAYPOINT</label>
+                            <input type="number" id="ctrl-waypoint" min="0" max="99" step="1" value="0">
+                        </div>
+                    </div>
+
+                    <!-- Drive/Stop/Resume Button row -->
+                    <div class="actions-grid">
+                        <button id="btn-drive" class="btn-cmd drive-fill">DRIVE</button>
+                        <button id="btn-stop" class="btn-cmd stop-fill">STOP</button>
+                        <button id="btn-resume" class="btn-cmd resume-outline">RESUME</button>
+                    </div>
+
+                    <!-- EMERGENCY STOP full-width -->
+                    <button id="btn-estop" class="btn-estop-full">
+                        EMERGENCY STOP
+                    </button>
+
+                    <div class="cmd-status" id="command-result-lbl">CONSOLE STANDBY</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─────────── COLUMN 2: Main Feed (fills center, ~780px) ─────────── -->
+        <div class="col" style="flex: 1; min-width: 600px;">
+            <div class="panel panel-green" style="flex: 1;">
+                <div class="pb" style="padding: 0; position: relative; height: 100%;">
+                    <!-- Camera feed video container -->
+                    <div class="video-container">
+                        <!-- SIGNATURE ELEMENT: Telemetry heartbeat scanner pulse line -->
+                        <div class="telemetry-pulse" id="telem-pulse"></div>
+
+                        <canvas id="video-hud-canvas"></canvas>
+
+                        <!-- Bounded overlays -->
+                        <div class="hud-badge-tl" id="camera-id-badge">CAM_01</div>
+                        <div class="hud-rec-tr">
+                            <span class="rec-dot"></span> REC
+                        </div>
+                        <div class="hud-overlay-bl" id="hud-fps">LINK_QUAL: 100% · 30.0 FPS</div>
+                        <div class="hud-overlay-br">SYS_STATUS: ACTIVE</div>
+                    </div>
+
+                    <!-- Filter toggles below camera -->
+                    <div class="filter-toggles">
+                        <button id="btn-toggle-hud" class="btn-filter">HUD MASK</button>
+                        <button id="btn-toggle-thermal" class="btn-filter">IR THERMAL</button>
+                        <button id="btn-toggle-noise" class="btn-filter">STATIC FILT</button>
+                    </div>
+
+                    <!-- Row of Subsystems (Mission Simulator & Global Team Mesh side-by-side) -->
+                    <div class="subsystems-row">
+                        <!-- Mission Simulator -->
+                        <div class="subsystem-card">
+                            <div class="subsystem-header">
+                                <span class="card-title">MISSION SIMULATOR & TESTS</span>
+                                <span class="badge-status" id="test-suite-status">READY</span>
+                            </div>
+                            <div class="subsystem-body">
+                                <p class="desc-text">Launch real-time simulation containers or run the backend automated DDS tests.</p>
+                                <div class="sim-buttons" style="display: flex; gap: 6px;">
+                                    <button id="btn-start-test-suite" class="btn-primary" style="flex: 1; font-size: 9px;">
+                                        <i class="fa-solid fa-terminal"></i> SPAWN SIM
+                                    </button>
+                                    <button id="btn-run-unit-tests" class="btn-primary" style="flex: 1; font-size: 9px; border-color: var(--cyan); color: var(--cyan);">
+                                        <i class="fa-solid fa-vial"></i> RUN TESTS
+                                    </button>
+                                    <button id="btn-run-ui-tests" class="btn-primary" style="flex: 1; font-size: 9px; border-color: var(--amber); color: var(--amber);">
+                                        <i class="fa-solid fa-desktop"></i> RUN UI TESTS
+                                    </button>
+                                </div>
+                                <div class="sub-log" id="test-suite-result">System ready for diagnostics</div>
+                            </div>
+                        </div>
+
+                        <!-- Global Team Mesh -->
+                        <div class="subsystem-card">
+                            <div class="subsystem-header">
+                                <span class="card-title">GLOBAL TEAM MESH</span>
+                                <span class="badge-status" id="mesh-pill">DISCOVERY</span>
+                            </div>
+                            <div class="subsystem-body">
+                                <div class="mesh-form">
+                                    <input type="text" id="peer-id-input" placeholder="Peer ID" class="mesh-input">
+                                    <input type="text" id="peer-ip-input" placeholder="IP Address" class="mesh-input">
+                                    <input type="number" id="peer-port-input" value="8090" class="mesh-input" style="width: 60px;">
+                                    <select id="peer-role-select" class="mesh-input" style="display:none;"><option value="rover" selected>rover</option></select>
+                                    <input type="text" id="peer-team-input" value="UCMTC" style="display:none;">
+                                    <button id="btn-add-peer" class="btn-mesh-add"><i class="fa-solid fa-plus"></i></button>
+                                </div>
+                                <div class="mesh-peers-header">
+                                    <span>CONNECTED MESH PEERS</span>
+                                    <span id="peer-live-count">0 / 0</span>
+                                </div>
+                                <div class="peers-list" id="peer-list">
+                                    <div class="peers-empty">No active mesh links.</div>
+                                </div>
+                                <div class="sub-log" id="peer-add-result">Awaiting connections...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ─────────── COLUMN 3: Diagnostics Stack (280px) ─────────── -->
+        <div class="col" style="width: 280px;">
+            <!-- SAFETY DIAGNOSTICS Card -->
+            <div class="panel panel-red card-diagnostic">
+                <div class="ph">
+                    <div class="ph-title">SAFETY DIAGNOSTICS</div>
+                </div>
+                <div class="pb">
+                    <div class="diag-list">
+                        <div class="diag-row">
+                            <span class="diag-lbl">Mech E-Stop</span>
+                            <span class="dv" id="safe-estop-mech">CLEAR</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Wire E-Stop</span>
+                            <span class="dv" id="safe-estop-wire">CLEAR</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Op E-Stop Trig</span>
+                            <span class="dv" id="safe-estop-trig">CLEAR</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Laser Blocked</span>
+                            <span class="dv" id="safe-blocked">CLEAR</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Touch Sensor</span>
+                            <span class="dv" id="safe-touched">CLEAR</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Collision Det</span>
+                            <span class="dv" id="safe-collision">CLEAR</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Geofence Cross</span>
+                            <span class="dv" id="safe-border-crossed">CLEAR</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Geofence Warn</span>
+                            <span class="dv" id="safe-border-partial">CLEAR</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- PERCEPTION ENGINE Card -->
+            <div class="panel panel-cyan card-diagnostic">
+                <div class="ph">
+                    <div class="ph-title">PERCEPTION ENGINE</div>
+                </div>
+                <div class="pb">
+                    <!-- Progress ring -->
+                    <div class="perception-ring-container">
+                        <div class="ring-wrap">
+                            <svg viewBox="0 0 100 100">
+                                <circle class="ring-track" cx="50" cy="50" r="40"></circle>
+                                <circle class="ring-progress" id="conf-dial" cx="50" cy="50" r="40" style="stroke-dasharray: 0, 251.2"></circle>
+                            </svg>
+                            <div class="ring-label" id="vision-conf-pct">--%</div>
+                        </div>
+                        <div class="perception-status-info">
+                            <span class="status-mode" id="vision-status-lbl">TRACKING</span>
+                            <span class="status-desc">CONFIDENCE</span>
+                        </div>
+                    </div>
+
+                    <!-- Metrics rows -->
+                    <div class="diag-list font-mono">
+                        <div class="diag-row">
+                            <span class="diag-lbl">Lane Tracking</span>
+                            <span class="dv cyan" id="vision-lane">--</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Obstacles</span>
+                            <span class="dv cyan" id="vision-obstacles">--</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Laser Array</span>
+                            <span class="dv cyan" id="vision-laser">--</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Throughput</span>
+                            <span class="dv cyan" id="vision-fps">-- FPS</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Heartbeat</span>
+                            <span class="dv cyan" id="vision-uptime">-- sec</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- LINK QUALITY Card -->
+            <div class="panel panel-blue card-diagnostic">
+                <div class="ph">
+                    <div class="ph-title">LINK QUALITY</div>
+                    <span class="ph-badge">RF BRIDGE</span>
+                </div>
+                <div class="pb">
+                    <div class="rssi-large-container">
+                        <div class="dv rssi-val" id="link-rssi">-- dBm</div>
+                        <div class="rssi-title"><i class="fa-solid fa-tower-broadcast"></i> TRANSCEIVER</div>
+                    </div>
+                    <div class="diag-list">
+                        <div class="diag-row">
+                            <span class="diag-lbl">Packet Loss</span>
+                            <span class="dv" id="link-loss">-- %</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Stream Rate</span>
+                            <span class="dv" id="link-fps">-- FPS</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Heartbeat Seq</span>
+                            <span class="dv" id="link-heartbeat">#0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Hidden charts and elements to satisfy original bindings -->
+            <div style="display:none;">
+                <canvas id="realtime-chart"></canvas>
+                <div id="telemetry-state-lbl"></div>
+                <div id="safety-mode-lbl"></div>
+                <span id="rosout-lbl"></span>
+                <span id="cpu-lbl"></span>
+                <div id="cpu-fill"></div>
+                <span id="gpu-lbl"></span>
+                <div id="gpu-fill"></div>
+                <span id="ram-lbl"></span>
+                <div id="ram-fill"></div>
+                <span id="temp-lbl"></span>
+                <span id="uptime-lbl"></span>
+                <div id="node-lane"><span class="ndot"></span></div>
+                <div id="node-avoid"><span class="ndot"></span></div>
+                <div id="node-nav"><span class="ndot"></span></div>
+                <div id="node-vision"><span class="ndot"></span></div>
+                <div id="node-motor"><span class="ndot"></span></div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<!-- ═══════════════ TEST SUITE DIALOG ═══════════════ -->
+<div class="dlg-backdrop" id="test-suite-backdrop"></div>
+<div class="dlg-window" id="test-suite-dialog">
+    <div class="dlg-header">
+        <h3>Launch Mission Simulator</h3>
+        <button class="dlg-close" id="btn-close-dialog"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="dlg-body">
+        <p style="margin-bottom: 12px; color: var(--text-primary);">You are about to spawn <strong>two terminal windows</strong> on the local host machine:</p>
+        <ul style="list-style-type: square; padding-left: 20px; color: var(--text-secondary); line-height: 1.6;">
+            <li><strong>Terminal 1:</strong> Sources ROS2 Humble, colcon-builds <code>rover_core</code>, launches the rover bringup package.</li>
+            <li><strong>Terminal 2:</strong> Echoes <code>/rover/commands/motor</code> to monitor live DDS telemetry dispatch.</li>
+        </ul>
+        <p style="margin-top: 12px; font-size: 11px; color: var(--text-secondary); opacity: 0.7;">Ensure you are in a graphical desktop session (GNOME/X11) with terminal support.</p>
+    </div>
+    <div class="dlg-footer">
+        <button id="btn-dialog-cancel" class="btn-dlg-cancel">Cancel</button>
+        <button id="btn-dialog-proceed" class="btn-dlg-proceed">Spawn Terminals</button>
+    </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
