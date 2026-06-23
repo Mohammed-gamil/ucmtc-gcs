@@ -27,6 +27,15 @@
             <span class="mission-pill">MISSION ARES-V</span>
         </div>
 
+        <div class="topbar-tabs">
+            <button class="tab-btn active" data-tab="tab-ops">
+                <i class="fa-solid fa-gauge-high"></i> OPERATIONS
+            </button>
+            <button class="tab-btn" data-tab="tab-setup">
+                <i class="fa-solid fa-gears"></i> SETUP & CONNECT
+            </button>
+        </div>
+
         <div class="topbar-center">
             <div class="met-timer">
                 <span class="met-label">MET:</span>
@@ -70,8 +79,9 @@
         <span id="alert-content">SYSTEM STANDBY — Awaiting telemetry handshake...</span>
     </div>
 
-    <!-- ═══════════════════════ MAIN 3-COLUMN GRID ═══════════════════════ -->
-    <main class="main-grid">
+    <!-- ═══════════════════════ OPERATIONS TAB ═══════════════════════ -->
+    <div id="tab-ops" class="tab-content active-content">
+        <main class="main-grid">
 
         <!-- ─────────── COLUMN 1: Navigation & Motion (280px) ─────────── -->
         <div class="col" style="width: 280px;">
@@ -228,14 +238,17 @@
                             </div>
                             <div class="subsystem-body">
                                 <p class="desc-text">Launch real-time simulation containers or run the backend automated DDS tests.</p>
-                                <div class="sim-buttons" style="display: flex; gap: 6px;">
-                                    <button id="btn-start-test-suite" class="btn-primary" style="flex: 1; font-size: 9px;">
-                                        <i class="fa-solid fa-terminal"></i> SPAWN SIM
+                                <div class="sim-buttons" style="display: flex; gap: 6px; flex-wrap: wrap;">
+                                    <button id="btn-start-test-suite" class="btn-primary" style="flex: 1; font-size: 9px; min-width: 70px;">
+                                        <i class="fa-solid fa-play"></i> SPAWN SIM
                                     </button>
-                                    <button id="btn-run-unit-tests" class="btn-primary" style="flex: 1; font-size: 9px; border-color: var(--cyan); color: var(--cyan);">
+                                    <button id="btn-stop-test-suite" class="btn-primary" style="flex: 1; font-size: 9px; min-width: 70px; border-color: var(--red-alert); color: var(--red-alert);">
+                                        <i class="fa-solid fa-stop"></i> STOP SIM
+                                    </button>
+                                    <button id="btn-run-unit-tests" class="btn-primary" style="flex: 1; font-size: 9px; min-width: 70px; border-color: var(--cyan); color: var(--cyan);">
                                         <i class="fa-solid fa-vial"></i> RUN TESTS
                                     </button>
-                                    <button id="btn-run-ui-tests" class="btn-primary" style="flex: 1; font-size: 9px; border-color: var(--amber); color: var(--amber);">
+                                    <button id="btn-run-ui-tests" class="btn-primary" style="flex: 1; font-size: 9px; min-width: 70px; border-color: var(--amber); color: var(--amber);">
                                         <i class="fa-solid fa-desktop"></i> RUN UI TESTS
                                     </button>
                                 </div>
@@ -414,7 +427,236 @@
                 <div id="node-motor"><span class="ndot"></span></div>
             </div>
         </div>
-    </main>
+        </main>
+    </div>
+
+    <!-- ═══════════════════════ SETUP & CONNECT TAB ═══════════════════════ -->
+    <div id="tab-setup" class="tab-content">
+        <div class="setup-grid">
+            <!-- Left Column: Network & Diagnostics -->
+            <div class="col" style="width: 480px;">
+                <!-- Network Configuration Panel -->
+                <div class="panel panel-cyan">
+                    <div class="ph">
+                        <div class="ph-title">Network Configuration</div>
+                        <span class="ph-badge">ROS2 System</span>
+                    </div>
+                    <div class="pb">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div class="form-row">
+                                <label for="setup-interface">Local Interface</label>
+                                <select id="setup-interface" class="setup-select">
+                                    <option value="localhost">localhost (127.0.0.1)</option>
+                                </select>
+                            </div>
+                            <div class="form-row">
+                                <label for="setup-ip">GCS IP Address</label>
+                                <input type="text" id="setup-ip" class="setup-input" value="127.0.0.1" readonly>
+                            </div>
+                        </div>
+
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                            <div class="form-row">
+                                <label for="setup-domain">ROS Domain ID</label>
+                                <input type="number" id="setup-domain" class="setup-input" value="0" min="0" max="232">
+                            </div>
+                            <div class="form-row">
+                                <label for="setup-discovery">Discovery Range</label>
+                                <select id="setup-discovery" class="setup-select">
+                                    <option value="LOCALHOST">LOCALHOST (Only Local)</option>
+                                    <option value="SUBNET" selected>SUBNET (Same Subnet)</option>
+                                    <option value="OFF">OFF (Static Peers Only)</option>
+                                    <option value="SYSTEM_DEFAULT">SYSTEM_DEFAULT</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <label for="setup-peer-id">Local Peer ID (Node Name)</label>
+                            <input type="text" id="setup-peer-id" class="setup-input" value="gcs-operator" placeholder="Enter peer ID">
+                        </div>
+
+                        <button id="btn-apply-network" class="btn-primary" style="height: 32px; font-size: 11px;">
+                            <i class="fa-solid fa-floppy-disk"></i> APPLY NETWORK CONFIG
+                        </button>
+                        <div class="sub-log" id="network-config-status">Current configuration active</div>
+                    </div>
+                </div>
+
+                <!-- Rover Diagnostics Panel -->
+                <div class="panel panel-amber">
+                    <div class="ph">
+                        <div class="ph-title">Rover Diagnostics</div>
+                        <span class="ph-badge">RF Bridge</span>
+                    </div>
+                    <div class="pb">
+                        <div class="form-row">
+                            <label for="setup-rover-ip">Rover Host/IP Target</label>
+                            <div style="display: flex; gap: 6px;">
+                                <input type="text" id="setup-rover-ip" class="setup-input" value="127.0.0.1" style="flex: 1;">
+                                <button id="btn-ping-test" class="btn-primary" style="padding: 0 16px; height: 32px;">
+                                    PING TEST
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 8px;">
+                            <button id="btn-run-diagnostics" class="btn-primary" style="flex: 1; height: 32px; border-color: var(--amber); color: var(--amber);">
+                                <i class="fa-solid fa-calculator"></i> RUN DIAGNOSTICS
+                            </button>
+                            <button id="btn-clear-diag-logs" class="btn-primary" style="padding: 0 12px; height: 32px;">
+                                CLEAR
+                            </button>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px;">
+                            <span class="stat-lbl" style="margin-bottom: 0;">Ping RTT</span>
+                            <span id="diag-ping-rtt" class="dv ok" style="font-family: var(--font-mono); font-size: 11px;">-- ms</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span class="stat-lbl" style="margin-bottom: 0;">Connection Health</span>
+                            <span id="diag-conn-health" class="dv err" style="font-family: var(--font-mono); font-size: 11px;">UNKNOWN</span>
+                        </div>
+
+                        <div class="stat-lbl" style="margin-top: 6px; margin-bottom: 4px;">Diagnostic Console Logs</div>
+                        <pre class="terminal-console amber-term" id="diag-console-logs">GCS Diagnostic interface initialized. Awaiting commands...</pre>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Subsystems and Team Mesh -->
+            <div class="col" style="flex: 1;">
+                <!-- ROS Subsystem State Checklist -->
+                <div class="panel panel-green" style="flex: 1;">
+                    <div class="ph">
+                        <div class="ph-title">ROS 2 Subsystem Heartbeats</div>
+                        <span class="ph-badge">DDS Nodes</span>
+                    </div>
+                    <div class="pb" style="padding: 0;">
+                        <table class="setup-table">
+                            <thead>
+                                <tr>
+                                    <th>Subsystem</th>
+                                    <th>Node Name</th>
+                                    <th>Status</th>
+                                    <th>Topic Path</th>
+                                    <th>QoS Profile</th>
+                                    <th>Heartbeat</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Motor Control</td>
+                                    <td><code>/motor_control_node</code></td>
+                                    <td>
+                                        <div class="status-indicator">
+                                            <span class="chip-dot d-offline" id="setup-node-motor-dot"></span>
+                                            <span id="setup-node-motor-lbl" class="dv err">OFFLINE</span>
+                                        </div>
+                                    </td>
+                                    <td><code>/rover/commands/motor</code></td>
+                                    <td>RELIABLE/VOLATILE</td>
+                                    <td id="setup-node-motor-heartbeat" style="text-align: right;">--</td>
+                                </tr>
+                                <tr>
+                                    <td>Lane Detection</td>
+                                    <td><code>/vision_node</code> (Lane)</td>
+                                    <td>
+                                        <div class="status-indicator">
+                                            <span class="chip-dot d-offline" id="setup-node-lane-dot"></span>
+                                            <span id="setup-node-lane-lbl" class="dv err">OFFLINE</span>
+                                        </div>
+                                    </td>
+                                    <td><code>/rover/sensors/lane</code></td>
+                                    <td>BEST_EFFORT/VOLATILE</td>
+                                    <td id="setup-node-lane-heartbeat" style="text-align: right;">--</td>
+                                </tr>
+                                <tr>
+                                    <td>Obstacle Avoidance</td>
+                                    <td><code>/safety_node</code> (Laser)</td>
+                                    <td>
+                                        <div class="status-indicator">
+                                            <span class="chip-dot d-offline" id="setup-node-avoid-dot"></span>
+                                            <span id="setup-node-avoid-lbl" class="dv err">OFFLINE</span>
+                                        </div>
+                                    </td>
+                                    <td><code>/rover/sensors/laser</code></td>
+                                    <td>BEST_EFFORT/VOLATILE</td>
+                                    <td id="setup-node-avoid-heartbeat" style="text-align: right;">--</td>
+                                </tr>
+                                <tr>
+                                    <td>Waypoint Navigator</td>
+                                    <td><code>/navigation_node</code></td>
+                                    <td>
+                                        <div class="status-indicator">
+                                            <span class="chip-dot d-offline" id="setup-node-nav-dot"></span>
+                                            <span id="setup-node-nav-lbl" class="dv err">OFFLINE</span>
+                                        </div>
+                                    </td>
+                                    <td><code>/rover/commands/nav</code></td>
+                                    <td>RELIABLE/VOLATILE</td>
+                                    <td id="setup-node-nav-heartbeat" style="text-align: right;">--</td>
+                                </tr>
+                                <tr>
+                                    <td>Image Recognition</td>
+                                    <td><code>/vision_node</code> (Core)</td>
+                                    <td>
+                                        <div class="status-indicator">
+                                            <span class="chip-dot d-offline" id="setup-node-vision-dot"></span>
+                                            <span id="setup-node-vision-lbl" class="dv err">OFFLINE</span>
+                                        </div>
+                                    </td>
+                                    <td><code>/rover/sensors/camera</code></td>
+                                    <td>BEST_EFFORT/VOLATILE</td>
+                                    <td id="setup-node-vision-heartbeat" style="text-align: right;">--</td>
+                                </tr>
+                                <tr>
+                                    <td>Telemetry Aggregator</td>
+                                    <td><code>/telemetry_aggregator</code></td>
+                                    <td>
+                                        <div class="status-indicator">
+                                            <span class="chip-dot d-offline" id="setup-node-telem-dot"></span>
+                                            <span id="setup-node-telem-lbl" class="dv err">OFFLINE</span>
+                                        </div>
+                                    </td>
+                                    <td><code>/rover/telemetry</code></td>
+                                    <td>RELIABLE/VOLATILE</td>
+                                    <td id="setup-node-telem-heartbeat" style="text-align: right;">--</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Mesh Announcements Panel -->
+                <div class="panel panel-cyan">
+                    <div class="ph">
+                        <div class="ph-title">Global Team Mesh & Announcer Logs</div>
+                        <span class="ph-badge">UDP/TCP Broadcast</span>
+                    </div>
+                    <div class="pb">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span class="stat-lbl" style="margin-bottom: 0;">Mesh Status</span>
+                            <span id="setup-mesh-status" class="dv err">OFFLINE</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span class="stat-lbl" style="margin-bottom: 0;">Discovery Port</span>
+                            <span class="dv ok" style="color: var(--cyan);">UDP :9876</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span class="stat-lbl" style="margin-bottom: 0;">Mesh Connections</span>
+                            <span id="setup-mesh-connections-lbl" class="dv font-mono">0 active peers</span>
+                        </div>
+
+                        <div class="stat-lbl" style="margin-top: 4px; margin-bottom: 4px;">Team Mesh Broadcast Events</div>
+                        <pre class="terminal-console green-term" id="mesh-announcer-logs" style="height: 110px;">Mesh announcer telemetry started.
+[Announcer] Listening for incoming peer announcements...
+</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- ═══════════════ TEST SUITE DIALOG ═══════════════ -->

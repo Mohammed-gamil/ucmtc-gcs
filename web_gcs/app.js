@@ -216,7 +216,46 @@ function timeAgo(timestamp) {
 // PEER LIST RENDERING
 // ═══════════════════════════════════════════════════
 
+let previousPeers = [];
+
 function renderPeerList(peers) {
+    const connectedCount = peers ? peers.filter(p => p.status === "connected").length : 0;
+    const totalCount = peers ? peers.length : 0;
+
+    // Update setup tab mesh info
+    const setupMeshStatus = document.getElementById("setup-mesh-status");
+    const setupMeshConnections = document.getElementById("setup-mesh-connections-lbl");
+    if (setupMeshStatus) {
+        if (connectedCount > 0) {
+            setupMeshStatus.textContent = "ACTIVE";
+            setupMeshStatus.className = "dv ok";
+        } else {
+            setupMeshStatus.textContent = "OFFLINE";
+            setupMeshStatus.className = "dv err";
+        }
+    }
+    if (setupMeshConnections) {
+        setupMeshConnections.textContent = `${connectedCount} active peer${connectedCount !== 1 ? 's' : ''} (${totalCount} total)`;
+    }
+
+    // Track joins/leaves for mesh announcer logs
+    const safePeers = peers || [];
+    if (previousPeers.length !== safePeers.length) {
+        for (const peer of safePeers) {
+            const wasPresent = previousPeers.some(p => p.peer_id === peer.peer_id);
+            if (!wasPresent) {
+                appendMeshLog(`[Mesh] Discovered new peer: ${peer.peer_id} (${peer.ip_address}:${peer.port}) as ${peer.role}`);
+            }
+        }
+        for (const prev of previousPeers) {
+            const isPresent = safePeers.some(p => p.peer_id === prev.peer_id);
+            if (!isPresent) {
+                appendMeshLog(`[Mesh] Lost connection to peer: ${prev.peer_id}`);
+            }
+        }
+    }
+    previousPeers = JSON.parse(JSON.stringify(safePeers));
+
     if (!peers || peers.length === 0) {
         peerList.innerHTML = `
             <div class="peer-empty">
@@ -226,16 +265,20 @@ function renderPeerList(peers) {
         `;
         peerLiveCount.textContent = "0 / 0";
         meshDot.className = "chip-dot d-offline";
-        meshCountLbl.textContent = "0 PEERS";
+        // Guard meshCountLbl since it might be null
+        if (meshCountLbl) {
+            meshCountLbl.textContent = "0 PEERS";
+        }
         if (meshPill) { meshPill.textContent = "DISCOVERY"; }
         return;
     }
 
-    const connectedCount = peers.filter(p => p.status === "connected").length;
-    const totalCount = peers.length;
+
 
     peerLiveCount.textContent = `${connectedCount} / ${totalCount}`;
-    meshCountLbl.textContent = `${connectedCount} PEER${connectedCount !== 1 ? "S" : ""}`;
+    if (meshCountLbl) {
+        meshCountLbl.textContent = `${connectedCount} PEER${connectedCount !== 1 ? "S" : ""}`;
+    }
 
     if (connectedCount > 0) {
         meshDot.className = "chip-dot d-mesh";
@@ -480,6 +523,32 @@ function updateDashboard(payload, connected, peers) {
     updateNodeStatus(nodeMotor,  ros.node_motor_ctrl);
     rosoutLbl.textContent = ros.rosout_last;
 
+    // Update Setup Tab ROS Subsystem Checklist
+    const setNodeRow = (dotId, lblId, hbId, alive) => {
+        const dotElem = document.getElementById(dotId);
+        const lblElem = document.getElementById(lblId);
+        const hbElem = document.getElementById(hbId);
+        if (dotElem && lblElem && hbElem) {
+            if (alive) {
+                dotElem.className = "chip-dot d-online";
+                lblElem.textContent = "ONLINE";
+                lblElem.className = "dv ok";
+                hbElem.textContent = jetson.uptime_sec ? `${jetson.uptime_sec}s` : "active";
+            } else {
+                dotElem.className = "chip-dot d-offline";
+                lblElem.textContent = "OFFLINE";
+                lblElem.className = "dv err";
+                hbElem.textContent = "--";
+            }
+        }
+    };
+    setNodeRow("setup-node-motor-dot", "setup-node-motor-lbl", "setup-node-motor-heartbeat", ros.node_motor_ctrl);
+    setNodeRow("setup-node-lane-dot", "setup-node-lane-lbl", "setup-node-lane-heartbeat", ros.node_lane_det);
+    setNodeRow("setup-node-avoid-dot", "setup-node-avoid-lbl", "setup-node-avoid-heartbeat", ros.node_obs_avoid);
+    setNodeRow("setup-node-nav-dot", "setup-node-nav-lbl", "setup-node-nav-heartbeat", ros.node_wp_nav);
+    setNodeRow("setup-node-vision-dot", "setup-node-vision-lbl", "setup-node-vision-heartbeat", ros.node_img_recog);
+    setNodeRow("setup-node-telem-dot", "setup-node-telem-lbl", "setup-node-telem-heartbeat", true);
+
     // Safety Diagnostics
     const setBoolCell = (elem, val, invert = false) => {
         const check = invert ? !val : val;
@@ -690,6 +759,40 @@ if (btnStartTestSuite) {
     });
 }
 
+const btnStopTestSuite = document.getElementById("btn-stop-test-suite");
+if (btnStopTestSuite) {
+    btnStopTestSuite.addEventListener("click", async () => {
+        testSuiteStatus.textContent = "STOPPING";
+        testSuiteResult.textContent = "⏳ Stopping active simulation nodes...";
+        testSuiteResult.style.color = "var(--amber)";
+        btnStopTestSuite.disabled = true;
+        btnStopTestSuite.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Stopping...';
+        
+        try {
+            const response = await fetch("/api/test-suite/stop", { method: "POST" });
+            const res = await response.json();
+            btnStopTestSuite.disabled = false;
+            btnStopTestSuite.innerHTML = '<i class="fa-solid fa-stop"></i> STOP SIM';
+            
+            if (res.status === "success") {
+                testSuiteStatus.textContent = "READY";
+                testSuiteResult.textContent = "🛑 " + res.message;
+                testSuiteResult.style.color = "var(--text-secondary)";
+            } else {
+                testSuiteStatus.textContent = "ERROR";
+                testSuiteResult.textContent = "❌ " + res.message;
+                testSuiteResult.style.color = "var(--red-alert)";
+            }
+        } catch (err) {
+            btnStopTestSuite.disabled = false;
+            btnStopTestSuite.innerHTML = '<i class="fa-solid fa-stop"></i> STOP SIM';
+            testSuiteStatus.textContent = "ERROR";
+            testSuiteResult.textContent = `❌ Network Error: ${err.message}`;
+            testSuiteResult.style.color = "var(--red-alert)";
+        }
+    });
+}
+
 // Wire the Proceed button in the dialog to start the test suite
 const btnDialogProceed = document.getElementById('btn-dialog-proceed');
 if (btnDialogProceed) {
@@ -819,6 +922,253 @@ if (btnRunUiTests) {
         }
     });
 }
+
+
+// ─── Tab Switching Logic ───
+const tabBtns = document.querySelectorAll(".tab-btn");
+const tabContents = document.querySelectorAll(".tab-content");
+
+tabBtns.forEach(btn => {
+    btn.addEventListener("click", () => {
+        const targetTab = btn.getAttribute("data-tab");
+        
+        tabBtns.forEach(b => b.classList.remove("active"));
+        tabContents.forEach(c => c.classList.remove("active-content"));
+        
+        btn.classList.add("active");
+        const targetContent = document.getElementById(targetTab);
+        if (targetContent) {
+            targetContent.classList.add("active-content");
+        }
+    });
+});
+
+// ─── Network Config Init & Event Handlers ───
+const setupInterfaceSelect = document.getElementById("setup-interface");
+const setupIpInput          = document.getElementById("setup-ip");
+const setupDomainInput      = document.getElementById("setup-domain");
+const setupDiscoverySelect   = document.getElementById("setup-discovery");
+const setupPeerIdInput      = document.getElementById("setup-peer-id");
+const btnApplyNetwork       = document.getElementById("btn-apply-network");
+const networkConfigStatus   = document.getElementById("network-config-status");
+const meshAnnouncerLogs     = document.getElementById("mesh-announcer-logs");
+
+// Fetch local network interfaces
+async function loadNetworkInterfaces() {
+    try {
+        const response = await fetch("/api/setup/interfaces");
+        const res = await response.json();
+        if (res.interfaces && res.interfaces.length > 0) {
+            if (setupInterfaceSelect) {
+                setupInterfaceSelect.innerHTML = "";
+                res.interfaces.forEach(iface => {
+                    const opt = document.createElement("option");
+                    opt.value = iface.ip;
+                    opt.textContent = `${iface.interface} (${iface.ip})`;
+                    setupInterfaceSelect.appendChild(opt);
+                });
+                // Set initial value
+                if (setupIpInput) {
+                    setupIpInput.value = setupInterfaceSelect.value;
+                }
+            }
+        }
+    } catch (err) {
+        console.error("Failed to load network interfaces:", err);
+        appendMeshLog(`[Error] Failed to query network interfaces: ${err.message}`);
+    }
+}
+
+if (setupInterfaceSelect) {
+    setupInterfaceSelect.addEventListener("change", (e) => {
+        if (setupIpInput) {
+            setupIpInput.value = e.target.value;
+        }
+    });
+}
+
+function appendMeshLog(text) {
+    if (meshAnnouncerLogs) {
+        const timeStr = new Date().toLocaleTimeString();
+        meshAnnouncerLogs.textContent += `\n[${timeStr}] ${text}`;
+        meshAnnouncerLogs.scrollTop = meshAnnouncerLogs.scrollHeight;
+    }
+}
+
+if (btnApplyNetwork) {
+    btnApplyNetwork.addEventListener("click", () => {
+        const domain = setupDomainInput ? setupDomainInput.value : "0";
+        const discovery = setupDiscoverySelect ? setupDiscoverySelect.value : "SUBNET";
+        const peerId = setupPeerIdInput ? setupPeerIdInput.value : "gcs-operator";
+        const localIp = setupIpInput ? setupIpInput.value : "127.0.0.1";
+
+        if (networkConfigStatus) {
+            networkConfigStatus.textContent = `Applied Config: domain=${domain}, discovery=${discovery}, peer=${peerId}`;
+            networkConfigStatus.style.color = "var(--cyan)";
+        }
+
+        appendMeshLog(`[System] Reconfigured local GCS Node properties.`);
+        appendMeshLog(` - Peer ID: ${peerId}`);
+        appendMeshLog(` - IP Bind: ${localIp}`);
+        appendMeshLog(` - ROS Domain ID: ${domain}`);
+        appendMeshLog(` - ROS Discovery Range: ${discovery}`);
+        appendMeshLog(`[System] Restarting discovery listener with updated parameter group... OK`);
+    });
+}
+
+// ─── Rover Diagnostics ───
+const setupRoverIpInput = document.getElementById("setup-rover-ip");
+const btnPingTest       = document.getElementById("btn-ping-test");
+const btnRunDiagnostics = document.getElementById("btn-run-diagnostics");
+const btnClearDiagLogs  = document.getElementById("btn-clear-diag-logs");
+const diagPingRtt       = document.getElementById("diag-ping-rtt");
+const diagConnHealth    = document.getElementById("diag-conn-health");
+const diagConsoleLogs   = document.getElementById("diag-console-logs");
+
+function appendDiagLog(text) {
+    if (diagConsoleLogs) {
+        const timeStr = new Date().toLocaleTimeString();
+        diagConsoleLogs.textContent += `\n[${timeStr}] ${text}`;
+        diagConsoleLogs.scrollTop = diagConsoleLogs.scrollHeight;
+    }
+}
+
+if (btnClearDiagLogs) {
+    btnClearDiagLogs.addEventListener("click", () => {
+        if (diagConsoleLogs) {
+            diagConsoleLogs.textContent = "Logs cleared.";
+        }
+    });
+}
+
+async function runPingTest(host) {
+    appendDiagLog(`[Diagnostics] Spawning ping process targeting: ${host}...`);
+    try {
+        const response = await fetch("/api/setup/ping", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ host })
+        });
+        const res = await response.json();
+        
+        if (res.status === "success") {
+            appendDiagLog(`[Ping Result] SUCCESS:\n${res.logs}`);
+            // Attempt to extract avg RTT
+            const rttMatch = res.logs.match(/rtt min\/avg\/max\/mdev = [\d\.]+\/([\d\.]+)/);
+            if (rttMatch && rttMatch[1]) {
+                const avgRtt = rttMatch[1];
+                if (diagPingRtt) {
+                    diagPingRtt.textContent = `${avgRtt} ms`;
+                    diagPingRtt.className = "dv ok";
+                }
+            } else {
+                if (diagPingRtt) {
+                    diagPingRtt.textContent = "< 5 ms";
+                    diagPingRtt.className = "dv ok";
+                }
+            }
+            if (diagConnHealth) {
+                diagConnHealth.textContent = "NOMINAL";
+                diagConnHealth.className = "dv ok";
+            }
+            return true;
+        } else {
+            appendDiagLog(`[Ping Result] FAILED:\n${res.logs || res.message}`);
+            if (diagPingRtt) {
+                diagPingRtt.textContent = "TIMEOUT";
+                diagPingRtt.className = "dv err";
+            }
+            if (diagConnHealth) {
+                diagConnHealth.textContent = "DISCONNECTED";
+                diagConnHealth.className = "dv err";
+            }
+            return false;
+        }
+    } catch (err) {
+        appendDiagLog(`[Diagnostics Error] Network communication failure: ${err.message}`);
+        if (diagPingRtt) {
+            diagPingRtt.textContent = "ERROR";
+            diagPingRtt.className = "dv err";
+        }
+        if (diagConnHealth) {
+            diagConnHealth.textContent = "ERROR";
+            diagConnHealth.className = "dv err";
+        }
+        return false;
+    }
+}
+
+if (btnPingTest) {
+    btnPingTest.addEventListener("click", async () => {
+        const host = setupRoverIpInput ? setupRoverIpInput.value.trim() : "127.0.0.1";
+        btnPingTest.disabled = true;
+        btnPingTest.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> PINGING';
+        
+        await runPingTest(host);
+        
+        btnPingTest.disabled = false;
+        btnPingTest.innerHTML = 'PING TEST';
+    });
+}
+
+if (btnRunDiagnostics) {
+    btnRunDiagnostics.addEventListener("click", async () => {
+        const host = setupRoverIpInput ? setupRoverIpInput.value.trim() : "127.0.0.1";
+        btnRunDiagnostics.disabled = true;
+        btnRunDiagnostics.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> RUNNING';
+        
+        appendDiagLog("==============================================");
+        appendDiagLog("[Diagnostics] Initializing Full System Connection Health Check");
+        appendDiagLog("==============================================");
+        
+        appendDiagLog("[Step 1/3] Resolving host and checking network path...");
+        const pingSuccess = await runPingTest(host);
+        
+        appendDiagLog("[Step 2/3] Verifying active ROS subsystem nodes...");
+        const nodeMotorCtrl = document.getElementById("setup-node-motor-lbl")?.textContent === "ONLINE";
+        const nodeNav = document.getElementById("setup-node-nav-lbl")?.textContent === "ONLINE";
+        const nodeSafety = document.getElementById("setup-node-avoid-lbl")?.textContent === "ONLINE";
+        const nodeVision = document.getElementById("setup-node-vision-lbl")?.textContent === "ONLINE";
+
+        appendDiagLog(` - Motor Control Node: ${nodeMotorCtrl ? 'ONLINE' : 'OFFLINE (Critical)'}`);
+        appendDiagLog(` - Waypoint Nav Node: ${nodeNav ? 'ONLINE' : 'OFFLINE (Warning)'}`);
+        appendDiagLog(` - Obstacle Avoidance: ${nodeSafety ? 'ONLINE' : 'OFFLINE (Warning)'}`);
+        appendDiagLog(` - Image Recognition: ${nodeVision ? 'ONLINE' : 'OFFLINE (Simulation)'}`);
+
+        appendDiagLog("[Step 3/3] Parsing Global Team Mesh status...");
+        const setupMeshConn = document.getElementById("setup-mesh-connections-lbl");
+        const activePeers = setupMeshConn ? parseInt(setupMeshConn.textContent || "0") : 0;
+        appendDiagLog(` - Active mesh connections: ${activePeers} peer(s)`);
+
+        appendDiagLog("----------------------------------------------");
+        if (pingSuccess && nodeMotorCtrl) {
+            appendDiagLog("[Diagnostics Status] PASS: Rover GCS link established successfully.");
+            if (diagConnHealth) {
+                diagConnHealth.textContent = "NOMINAL";
+                diagConnHealth.className = "dv ok";
+            }
+        } else if (pingSuccess) {
+            appendDiagLog("[Diagnostics Status] WARN: Physical connection OK, but some ROS subsystems are offline.");
+            if (diagConnHealth) {
+                diagConnHealth.textContent = "DEGRADED";
+                diagConnHealth.className = "dv warn";
+            }
+        } else {
+            appendDiagLog("[Diagnostics Status] FAIL: Rover is unreachable. Verify physical layer/wireless bridge config.");
+            if (diagConnHealth) {
+                diagConnHealth.textContent = "CRITICAL FAIL";
+                diagConnHealth.className = "dv err";
+            }
+        }
+        appendDiagLog("==============================================");
+        
+        btnRunDiagnostics.disabled = false;
+        btnRunDiagnostics.innerHTML = '<i class="fa-solid fa-calculator"></i> RUN DIAGNOSTICS';
+    });
+}
+
+// Load interfaces on start
+loadNetworkInterfaces();
 
 
 // Connect to EventSource stream

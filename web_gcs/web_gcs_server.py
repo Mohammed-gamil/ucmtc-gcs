@@ -176,6 +176,31 @@ class GCSWebHandler(BaseHTTPRequestHandler):
             }))
             return
 
+        if self.path == "/api/setup/interfaces":
+            ips = []
+            try:
+                import subprocess
+                out = subprocess.run(["ip", "-o", "-4", "addr", "show"], capture_output=True, text=True)
+                for line in out.stdout.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        name = parts[1]
+                        ip = parts[3].split("/")[0]
+                        ips.append({"interface": name, "ip": ip})
+            except Exception:
+                pass
+            if not ips:
+                try:
+                    import socket
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))
+                    ips.append({"interface": "primary", "ip": s.getsockname()[0]})
+                    s.close()
+                except Exception:
+                    ips.append({"interface": "localhost", "ip": "127.0.0.1"})
+            self._send_json(200, json.dumps({"interfaces": ips}))
+            return
+
         # Serve static assets
         if self.path in ("/", "/index.html"):
             filename = "index.html"
@@ -333,6 +358,24 @@ class GCSWebHandler(BaseHTTPRequestHandler):
                     }))
             except Exception as exc:
                 self._send_json(500, json.dumps({"status": "error", "message": str(exc)}))
+        # ── Test Suite: Stop ──
+        elif self.path == "/api/test-suite/stop":
+            try:
+                import subprocess
+                # Terminate any active ros2 launch or nodes spawned by the simulator
+                subprocess.run(["pkill", "-f", "rover_bringup.launch.py"])
+                subprocess.run(["pkill", "-f", "ros2 launch"])
+                subprocess.run(["pkill", "-f", "motor_control_node"])
+                subprocess.run(["pkill", "-f", "navigation_node"])
+                subprocess.run(["pkill", "-f", "safety_node"])
+                subprocess.run(["pkill", "-f", "vision_node"])
+                subprocess.run(["pkill", "-f", "telemetry_aggregator"])
+                self._send_json(200, json.dumps({
+                    "status": "success",
+                    "message": "Terminated simulated rover bringup and topic monitor instances."
+                }))
+            except Exception as exc:
+                self._send_json(500, json.dumps({"status": "error", "message": str(exc)}))
 
         # ── Test Suite: Run Unittests ──
         elif self.path == "/api/test-suite/run":
@@ -375,6 +418,37 @@ class GCSWebHandler(BaseHTTPRequestHandler):
                 }))
             except Exception as exc:
                 self._send_json(500, json.dumps({"status": "error", "message": str(exc)}))
+
+        # ── Setup: Ping Rover Host ──
+        elif self.path == "/api/setup/ping":
+            content_length = int(self.headers.get("Content-Length", 0))
+            post_data = self.rfile.read(content_length)
+            try:
+                params = json.loads(post_data.decode("utf-8"))
+                host = params.get("host", "127.0.0.1")
+                
+                # Input sanitization to prevent command injection
+                import socket
+                try:
+                    # Resolves host / checks if IP format is valid
+                    socket.gethostbyname(host)
+                except Exception:
+                    raise ValueError(f"Invalid hostname or IP address format: '{host}'")
+
+                import subprocess
+                res = subprocess.run(
+                    ["ping", "-c", "3", "-W", "1", host],
+                    capture_output=True,
+                    text=True
+                )
+                logs = res.stdout + "\n" + res.stderr
+                success = res.returncode == 0
+                self._send_json(200, json.dumps({
+                    "status": "success" if success else "failure",
+                    "logs": logs.strip(),
+                }))
+            except Exception as exc:
+                self._send_json(400, json.dumps({"status": "error", "message": str(exc)}))
 
 
 
