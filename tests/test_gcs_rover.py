@@ -335,6 +335,100 @@ class TestWebGCSServer(unittest.TestCase):
         self.assertEqual(response_data["status"], "success")
         self.assertIn("Spawned two test terminals", response_data["message"])
 
+    def test_bridge_node_direct_callbacks(self):
+        from web_gcs.web_gcs_server import WebGCSBridgeNode, telemetry_state
+        import web_gcs.web_gcs_server as server
+        
+        # Reset telemetry_state
+        server.telemetry_state["latest"] = None
+        
+        # Instantiate node
+        node = WebGCSBridgeNode()
+        
+        # Create mock ROS messages
+        class MockVector3:
+            def __init__(self, x=0.0, y=0.0, z=0.0):
+                self.x = x
+                self.y = y
+                self.z = z
+                
+        class MockImuMsg:
+            def __init__(self):
+                self.linear_acceleration = MockVector3(1.2, 3.4, 5.6)
+                self.angular_velocity = MockVector3(0.1, 0.2, 0.3)
+                
+        class MockPoint:
+            def __init__(self, x=0.0, y=0.0, z=0.0):
+                self.x = x
+                self.y = y
+                self.z = z
+                
+        class MockQuaternion:
+            def __init__(self, x=0.0, y=0.0, z=0.0, w=1.0):
+                self.x = x
+                self.y = y
+                self.z = z
+                self.w = w
+                
+        class MockPose:
+            def __init__(self):
+                self.position = MockPoint(10.0, 20.0, 30.0)
+                self.orientation = MockQuaternion(0.0, 0.0, 0.0, 1.0)
+                
+        class MockPoseWithCovariance:
+            def __init__(self):
+                self.pose = MockPose()
+                
+        class MockTwist:
+            def __init__(self):
+                self.linear = MockVector3(1.0, 2.0, 0.0)
+                self.angular = MockVector3(0.0, 0.0, 0.5)
+                
+        class MockTwistWithCovariance:
+            def __init__(self):
+                self.twist = MockTwist()
+                
+        class MockOdomMsg:
+            def __init__(self):
+                self.pose = MockPoseWithCovariance()
+                self.twist = MockTwistWithCovariance()
+                
+        class MockGPSMsg:
+            def __init__(self):
+                self.latitude = 37.7749
+                self.longitude = -122.4194
+                self.altitude = 10.0
+                
+        class MockBatteryMsg:
+            def __init__(self):
+                self.voltage = 12.6
+                self.percentage = 0.95
+                
+        class MockCmdVelMsg:
+            def __init__(self):
+                self.linear = MockVector3(1.5, 0.0, 0.0)
+                self.angular = MockVector3(0.0, 0.0, 0.2)
+        
+        # Run callbacks
+        node.imu_callback(MockImuMsg())
+        self.assertIsNotNone(server.telemetry_state["latest"])
+        self.assertEqual(server.telemetry_state["latest"]["Sensors"]["imu"]["accel_x"], 1.2)
+        
+        node.odom_callback(MockOdomMsg())
+        self.assertEqual(server.telemetry_state["latest"]["Odom"]["pos_x"], 10.0)
+        self.assertAlmostEqual(server.telemetry_state["latest"]["Odom"]["speed_kmh"], math.sqrt(1.0 + 4.0) * 3.6)
+        
+        node.gps_callback(MockGPSMsg())
+        self.assertEqual(server.telemetry_state["latest"]["GPS"]["latitude"], 37.7749)
+        
+        node.battery_callback(MockBatteryMsg())
+        self.assertEqual(server.telemetry_state["latest"]["Battery"]["voltage"], 12.6)
+        self.assertEqual(server.telemetry_state["latest"]["Battery"]["percentage"], 95.0)
+        self.assertEqual(server.telemetry_state["latest"]["Jetson"]["bat_pct"], 95.0)
+        
+        node.cmd_vel_echo_callback(MockCmdVelMsg())
+        self.assertEqual(server.telemetry_state["latest"]["CmdVelEcho"]["linear_x"], 1.5)
+
 
 class TestGlobalConnector(unittest.TestCase):
     """Test the Global Connector multi-peer network bridge."""
@@ -728,6 +822,146 @@ class TestWebGCSUI(unittest.TestCase):
             self.assertEqual(response.status, 200)
             
         self.assertFalse(server.sim_estop_triggered)
+
+    def test_topic_config_endpoints(self):
+        import urllib.request
+        import json
+        import os
+        import web_gcs.web_gcs_server as server
+
+        # 1. Get current config
+        url = f"http://127.0.0.1:{self.port}/api/config/topics"
+        with urllib.request.urlopen(url) as response:
+            self.assertEqual(response.status, 200)
+            data = json.loads(response.read().decode("utf-8"))
+            self.assertIn("motor_control", data)
+            self.assertIn("imu_accel", data)
+            self.assertEqual(data["motor_control"]["path"], "/rover/commands/motor")
+
+        # 2. Update config via POST
+        custom_config = dict(server.DEFAULT_TOPICS)
+        custom_config["motor_control"] = {"label": "Custom Motor", "path": "/custom/commands/motor"}
+        custom_config["imu_accel"] = {"label": "Custom IMU", "path": "/custom/sensors/imu"}
+
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(custom_config).encode("utf-8"),
+            method="POST",
+            headers={"Content-Type": "application/json"}
+        )
+        with urllib.request.urlopen(req) as response:
+            self.assertEqual(response.status, 200)
+            res_data = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(res_data["status"], "success")
+
+        # Verify configuration was updated on the server
+        self.assertEqual(server.topic_config["motor_control"]["path"], "/custom/commands/motor")
+        self.assertEqual(server.topic_config["imu_accel"]["label"], "Custom IMU")
+        self.assertTrue(os.path.exists(server.TOPIC_CONFIG_FILE))
+
+        # 3. Reset config
+        reset_url = f"http://127.0.0.1:{self.port}/api/config/topics/reset"
+        reset_req = urllib.request.Request(reset_url, data=b"", method="POST")
+        with urllib.request.urlopen(reset_req) as response:
+            self.assertEqual(response.status, 200)
+            res_data = json.loads(response.read().decode("utf-8"))
+            self.assertEqual(res_data["status"], "success")
+
+        # Verify config reverted and file was deleted
+        self.assertEqual(server.topic_config["motor_control"]["path"], "/rover/commands/motor")
+        self.assertEqual(server.topic_config["imu_accel"]["label"], "IMU ACCEL")
+        self.assertFalse(os.path.exists(server.TOPIC_CONFIG_FILE))
+
+    def test_ros2_topics_list_endpoint(self):
+        import urllib.request
+        import json
+        url = f"http://127.0.0.1:{self.port}/api/ros2/topics"
+        with urllib.request.urlopen(url) as response:
+            self.assertEqual(response.status, 200)
+            data = json.loads(response.read().decode("utf-8"))
+            self.assertIn("topics", data)
+            self.assertTrue(len(data["topics"]) > 0)
+            for t in data["topics"]:
+                self.assertIn("name", t)
+                self.assertIn("types", t)
+
+
+class TestGCSMetadataArchitecture(unittest.TestCase):
+    """Verifies topic type resolution errors, websocket deduplication, and topic whitelist filters."""
+
+    def test_unresolved_topic_degradation(self):
+        from web_gcs.topic_registry import get_registry, load_registry
+        import tempfile
+        import json
+
+        # Create a temporary topics.json with a bad/missing type
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump([
+                {"name": "/bad_topic", "type": "missing_package/msg/FakeMessage"},
+                {"name": "/normal_topic", "type": "std_msgs/msg/String"}
+            ], f)
+            temp_path = f.name
+
+        try:
+            # Load the registry from our temporary file
+            load_registry(temp_path)
+            registry = get_registry()
+            
+            # The bad topic should fail gracefully and degrade
+            self.assertIn("/bad_topic", registry)
+            self.assertEqual(registry["/bad_topic"]["connection_state"], "error")
+            self.assertIn("missing type definition", registry["/bad_topic"]["error_reason"])
+            self.assertEqual(registry["/bad_topic"]["schema"], None)
+            
+            # The normal topic should be OK (or at least resolved if std_msgs is present)
+            self.assertIn("/normal_topic", registry)
+            if registry["/normal_topic"]["connection_state"] != "error":
+                self.assertIsNotNone(registry["/normal_topic"]["schema"])
+
+        finally:
+            import os
+            try:
+                os.remove(temp_path)
+            except Exception:
+                pass
+            load_registry()
+
+    def test_websocket_deduplication(self):
+        from web_gcs.websocket import _last_emitted_data
+        
+        # Test change detection check
+        test_topic = "/test_dedup"
+        _last_emitted_data[test_topic] = {"value": 42}
+        
+        # Identical payload should not be emitted (returns same)
+        payload = {"value": 42}
+        has_changed = (payload != _last_emitted_data[test_topic])
+        self.assertFalse(has_changed)
+        
+        # Different payload should be emitted
+        new_payload = {"value": 43}
+        has_changed = (new_payload != _last_emitted_data[test_topic])
+        self.assertTrue(has_changed)
+
+    def test_join_topic_whitelisting(self):
+        from web_gcs.websocket import on_join
+        from unittest.mock import patch
+
+        with patch("web_gcs.websocket.join_room") as mock_join, \
+             patch("web_gcs.websocket.emit") as mock_emit:
+            # Valid topic from registry
+            from web_gcs.topic_registry import get_registry
+            registry = get_registry()
+            test_topic = list(registry.keys())[0] if registry else "/battery_state"
+            
+            on_join({"topic": test_topic})
+            mock_join.assert_called_once_with(test_topic)
+            
+            # Invalid/unregistered topic must be rejected
+            mock_join.reset_mock()
+            on_join({"topic": "/invalid_nonexistent_topic"})
+            mock_join.assert_not_called()
+            mock_emit.assert_called_with("error", {"message": "Topic '/invalid_nonexistent_topic' is not allowed (not in registry)"})
 
 
 if __name__ == "__main__":

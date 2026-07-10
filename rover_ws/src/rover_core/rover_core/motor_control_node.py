@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
-import time
+import math
 from typing import Any
 
-from rover_core.ros_compat import Node, String, ensure_ros_initialized, rclpy, run_node
+from rover_core.ros_compat import Node, String, ensure_ros_initialized, run_node
 from rover_core.telemetry_utils import (
     COMMAND_QOS,
     RELIABLE_QOS,
+    Twist,
+    _STD_MSGS_AVAILABLE,
     decode_json_message,
+    get_topic_path,
 )
 
 # rcl_interfaces ParameterDescriptor is optional (falls back for local dev).
@@ -69,19 +72,13 @@ class MotorControlNode(Node):
         period_sec = 1.0 / max(publish_rate_hz, 0.1)
 
         # ── Pub / Sub ────────────────────────────────────────────────────────
-        # Command subscriber: RELIABLE — must not drop any motor command.
-        self._command_subscription = self.create_subscription(
-            String,
-            "/rover/commands/motor",
-            self._motor_command_callback,
-            COMMAND_QOS,
-        )
-        # Heartbeat publisher: RELIABLE diagnostics stream.
-        self._heartbeat_publisher = self.create_publisher(
-            String,
-            "/rover/telemetry/control",
-            RELIABLE_QOS,
-        )
+        self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self._init_topics()
+
+        # ── Dynamic Config Checker ──
+        self._config_mtime = 0.0
+        self._check_topic_config()
+        self._config_timer = self.create_timer(1.0, self._check_topic_config)
 
         # ── State ────────────────────────────────────────────────────────────
         # Use node clock (respects use_sim_time) for all timing.
@@ -95,25 +92,100 @@ class MotorControlNode(Node):
             f"Motor control node ready (rate={publish_rate_hz:.1f} Hz, "
             f"max_speed={self._max_speed_kmh:.1f} km/h)"
         )
+    def _init_topics(self) -> None:
+        motor_topic = get_topic_path("motor_control", "/rover/commands/motor")
+        control_topic = get_topic_path("telemetry_control", "/rover/telemetry/control")
+        
+        # Command velocity topic parameter override
+        cmd_vel_topic = self.get_parameter("cmd_vel_topic").get_parameter_value().string_value
+        if cmd_vel_topic == "/cmd_vel":
+            cmd_vel_topic = get_topic_path("cmd_vel_echo", "/cmd_vel")
 
+        self._command_subscription = self.create_subscription(
+            String,
+            motor_topic,
+            self._motor_command_callback,
+            COMMAND_QOS,
+        )
+        self._heartbeat_publisher = self.create_publisher(
+            String,
+            control_topic,
+            RELIABLE_QOS,
+        )
+        self._cmd_vel_publisher = None
+        if _STD_MSGS_AVAILABLE:
+            self._cmd_vel_publisher = self.create_publisher(
+                Twist, cmd_vel_topic, COMMAND_QOS
+            )
+            self.get_logger().info(f"{cmd_vel_topic} publisher created (geometry_msgs/Twist)")
+
+    def _check_topic_config(self) -> None:
+        import os
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.normpath(os.path.join(base_dir, "../../../../web_gcs/topic_config.json"))
+            if os.path.exists(config_path):
+                mtime = os.path.getmtime(config_path)
+                if self._config_mtime != 0.0 and mtime != self._config_mtime:
+                    self.get_logger().info("topic_config.json changed! Reconfiguring topics...")
+                    self._config_mtime = mtime
+                    self._update_topics()
+                elif self._config_mtime == 0.0:
+                    self._config_mtime = mtime
+        except Exception:
+            pass
+
+    def _update_topics(self) -> None:
+        try:
+            if hasattr(self, "_command_subscription") and self._command_subscription:
+                self.destroy_subscription(self._command_subscription)
+                self._command_subscription = None
+            if hasattr(self, "_heartbeat_publisher") and self._heartbeat_publisher:
+                self.destroy_publisher(self._heartbeat_publisher)
+                self._heartbeat_publisher = None
+            if hasattr(self, "_cmd_vel_publisher") and self._cmd_vel_publisher:
+                self.destroy_publisher(self._cmd_vel_publisher)
+                self._cmd_vel_publisher = None
+            
+            self._init_topics()
+            self.get_logger().info("MotorControlNode topics updated successfully.")
+        except Exception as e:
+            self.get_logger().error(f"Error reconfiguring MotorControlNode topics: {e}")
     # ── Command handling ─────────────────────────────────────────────────────
 
     def _motor_command_callback(self, msg) -> None:
         command = decode_json_message(msg)
         if not command:
             return
-        self._last_command = command
         action = str(command.get("action", "")).lower()
-        if action == "estop":
+        if action == "drive":
+            speed = float(command.get("speed_kmh", 0.0))
+            speed = min(speed, self._max_speed_kmh)
+            command["speed_kmh"] = speed
+            self.get_logger().debug("Motor control accepted drive command")
+            # Publish standard /cmd_vel: convert km/h → m/s on linear.x
+            # heading_deg is mapped to angular.z (positive = turn left, rad/s)
+            if self._cmd_vel_publisher is not None:
+                twist = Twist()
+                heading_deg = float(command.get("heading_deg", 0.0))
+                if heading_deg > 180.0:
+                    heading_deg -= 360.0
+                twist.linear.x = round(speed / 3.6, 4)         # km/h → m/s
+                # Map heading offset to angular.z (simple proportional, capped ±1 rad/s)
+                angular_z = max(-1.0, min(1.0, math.radians(heading_deg) * 0.3))
+                twist.angular.z = round(angular_z, 4)
+                self._cmd_vel_publisher.publish(twist)
+        elif action == "estop":
             self._estop_latched = True
             self.get_logger().warning("Motor control received emergency stop")
+            self._publish_zero_cmd_vel()
         elif action == "resume":
             self._estop_latched = False
             self.get_logger().info("Motor control resumed")
         elif action == "stop":
             self.get_logger().info("Motor control stopping rover")
-        elif action == "drive":
-            self.get_logger().debug("Motor control accepted drive command")
+            self._publish_zero_cmd_vel()
+        self._last_command = command
 
     # ── Timer ────────────────────────────────────────────────────────────────
 
@@ -146,8 +218,17 @@ class MotorControlNode(Node):
 
     # ── Shutdown safety ──────────────────────────────────────────────────────
 
+    def _publish_zero_cmd_vel(self) -> None:
+        """Publish a zero-velocity Twist on /cmd_vel (safe command on stop/estop)."""
+        if self._cmd_vel_publisher is not None:
+            try:
+                self._cmd_vel_publisher.publish(Twist())
+            except Exception:
+                pass
+
     def _send_zero_command(self) -> None:
         """Publish a zero-velocity stop before the node exits (anti-pattern #8)."""
+        self._publish_zero_cmd_vel()
         try:
             stop_payload = {"action": "stop", "speed_kmh": 0.0}
             msg = String()

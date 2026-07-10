@@ -13,11 +13,15 @@ try:
     import rclpy as _rclpy
     from rclpy.node import Node as _Node
     from std_msgs.msg import String as _String
+    from sensor_msgs.msg import LaserScan as _LaserScan
+    from std_msgs.msg import Float32 as _Float32
 
     ROS_AVAILABLE = True
 except ImportError:
     ROS_AVAILABLE = False
     _rclpy = None
+    _LaserScan = None
+    _Float32 = None
 
     class _String:
         def __init__(self, data: str = ""):
@@ -84,6 +88,7 @@ else:
 
 Node = _NodeType
 String = _String
+Float32 = _Float32
 
 
 def _ros_initialized() -> bool:
@@ -116,6 +121,26 @@ def run_node(node, fallback_period: float = 0.01):
         return None
 
 
+def get_topic_path(topic_key: str, default_path: str) -> str:
+    """Resolve the topic path from topic_config.json, falling back to default_path."""
+    import os
+    import json
+
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.join(base_dir, "web_gcs/topic_config.json")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                if topic_key in config and "path" in config[topic_key]:
+                    path = config[topic_key]["path"]
+                    if path:
+                        return path
+    except Exception:
+        pass
+    return default_path
+
+
 class MockRoverTelemetryPublisher(Node):
     """Mock ROS2 node that publishes simulated rover telemetry at 100 Hz."""
 
@@ -126,8 +151,82 @@ class MockRoverTelemetryPublisher(Node):
             self._owns_ros_context = True
         super().__init__("mock_rover_telemetry")
 
-        self.publisher_ = self.create_publisher(String, "/rover/telemetry", 10)
+        self._init_topics()
+        
+        # ── Dynamic Config Checker ──
+        self._config_mtime = 0.0
+        self._check_topic_config()
+        self._config_timer = self.create_timer(1.0, self._check_topic_config)
+
         self.timer = self.create_timer(0.01, self.timer_callback)
+
+    def _init_topics(self) -> None:
+        telem_topic = get_topic_path("telemetry_aggregator", "/rover/telemetry")
+        scan_topic = get_topic_path("obstacle_avoidance", "/scan")
+        mission_topic = get_topic_path("mission_phase", "/mission_phase")
+        arm_topic = get_topic_path("arm_status", "/arm_status")
+        speed_limit_topic = get_topic_path("speed_limit", "/speed_limit")
+        
+        self.publisher_ = self.create_publisher(String, telem_topic, 10)
+        self.mission_pub_ = self.create_publisher(String, mission_topic, 10)
+        self.arm_pub_ = self.create_publisher(String, arm_topic, 10)
+        
+        self.speed_limit_pub_ = None
+        if ROS_AVAILABLE and Float32 is not None:
+            self.speed_limit_pub_ = self.create_publisher(Float32, speed_limit_topic, 10)
+        
+        self.scan_pub = None
+        if ROS_AVAILABLE and _LaserScan is not None:
+            try:
+                from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+                scan_qos = QoSProfile(
+                    reliability=ReliabilityPolicy.BEST_EFFORT,
+                    durability=DurabilityPolicy.VOLATILE,
+                    depth=5
+                )
+            except Exception:
+                scan_qos = 10
+            self.scan_pub = self.create_publisher(_LaserScan, scan_topic, scan_qos)
+            self.get_logger().info(f"Mock {scan_topic} publisher initialized (sensor_msgs/LaserScan, BEST_EFFORT)")
+
+    def _check_topic_config(self) -> None:
+        import os
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.join(base_dir, "web_gcs/topic_config.json")
+            if os.path.exists(config_path):
+                mtime = os.path.getmtime(config_path)
+                if self._config_mtime != 0.0 and mtime != self._config_mtime:
+                    self.get_logger().info("topic_config.json changed! Reconfiguring topics...")
+                    self._config_mtime = mtime
+                    self._update_topics()
+                elif self._config_mtime == 0.0:
+                    self._config_mtime = mtime
+        except Exception:
+            pass
+
+    def _update_topics(self) -> None:
+        try:
+            if hasattr(self, "publisher_") and self.publisher_:
+                self.destroy_publisher(self.publisher_)
+                self.publisher_ = None
+            if hasattr(self, "mission_pub_") and self.mission_pub_:
+                self.destroy_publisher(self.mission_pub_)
+                self.mission_pub_ = None
+            if hasattr(self, "arm_pub_") and self.arm_pub_:
+                self.destroy_publisher(self.arm_pub_)
+                self.arm_pub_ = None
+            if hasattr(self, "speed_limit_pub_") and self.speed_limit_pub_:
+                self.destroy_publisher(self.speed_limit_pub_)
+                self.speed_limit_pub_ = None
+            if hasattr(self, "scan_pub") and self.scan_pub:
+                self.destroy_publisher(self.scan_pub)
+                self.scan_pub = None
+            
+            self._init_topics()
+            self.get_logger().info("MockRoverTelemetryPublisher topics updated successfully.")
+        except Exception as e:
+            self.get_logger().error(f"Error reconfiguring MockRoverTelemetryPublisher topics: {e}")
 
         self.tick_count = 0
         self.start_time = time.time()
@@ -148,7 +247,37 @@ class MockRoverTelemetryPublisher(Node):
         self.vision_fps = 30.0
         self.lane_detected_state = False
         self.obstacles_count = 0
+        
+        self.mission_phase_state = "IDLE"
+        self.arm_state = "STOWED"
+        self.speed_limit_val = 15.0
+        
         self.get_logger().info("Mock Rover Telemetry Publisher initialized (100 Hz)")
+
+    def _get_simulated_scan(self, t: float) -> list[float]:
+        sim_ranges = []
+        obs1_r = 3.5 + 1.5 * math.sin(t * 0.4)
+        obs1_a = 0.2 * math.cos(t * 0.3)
+        obs1_width = 0.25
+
+        obs2_r = 4.0 + 1.0 * math.cos(t * 0.2)
+        obs2_a = math.pi / 3.0 + 0.15 * math.sin(t * 0.5)
+        obs2_width = 0.2
+
+        obs3_r = 2.5 + 0.8 * math.sin(t * 0.6)
+        obs3_a = -math.pi / 4.0 + 0.2 * math.cos(t * 0.4)
+        obs3_width = 0.3
+
+        for i in range(180):
+            angle = -math.pi + i * (2.0 * math.pi / 179.0)
+            r = 6.0 + 0.8 * math.sin(angle * 3.0) + random.uniform(-0.03, 0.03)
+            for obs_r, obs_a, obs_w in [(obs1_r, obs1_a, obs1_width), (obs2_r, obs2_a, obs2_width), (obs3_r, obs3_a, obs3_width)]:
+                diff = math.atan2(math.sin(angle - obs_a), math.cos(angle - obs_a))
+                if abs(diff) < obs_w:
+                    r = min(r, obs_r + random.uniform(-0.01, 0.01))
+            r = max(0.12, min(r, 12.0))
+            sim_ranges.append(r)
+        return sim_ranges
 
     def timer_callback(self):
         self.tick_count += 1
@@ -156,6 +285,39 @@ class MockRoverTelemetryPublisher(Node):
         message = String()
         message.data = json.dumps(telemetry, separators=(",", ":"))
         self.publisher_.publish(message)
+        
+        if self.tick_count % 100 == 0:
+            mission_msg = String()
+            mission_msg.data = self.mission_phase_state
+            self.mission_pub_.publish(mission_msg)
+            
+            arm_msg = String()
+            arm_msg.data = self.arm_state
+            self.arm_pub_.publish(arm_msg)
+            
+            if self.speed_limit_pub_ is not None and Float32 is not None:
+                limit_msg = Float32()
+                limit_msg.data = float(self.speed_limit_val)
+                self.speed_limit_pub_.publish(limit_msg)
+
+        if self.scan_pub is not None and _LaserScan is not None:
+            if self.tick_count % 10 == 0:
+                scan_msg = _LaserScan()
+                if hasattr(self, 'get_clock'):
+                    scan_msg.header.stamp = self.get_clock().now().to_msg()
+                scan_msg.header.frame_id = "laser_frame"
+                scan_msg.angle_min = -math.pi
+                scan_msg.angle_max = math.pi
+                scan_msg.angle_increment = 2.0 * math.pi / 179.0
+                scan_msg.time_increment = 0.0
+                scan_msg.scan_time = 0.1
+                scan_msg.range_min = 0.12
+                scan_msg.range_max = 12.0
+                
+                t = time.time()
+                scan_msg.ranges = self._get_simulated_scan(t)
+                self.scan_pub.publish(scan_msg)
+
         if self.tick_count % 100 == 0:
             self.get_logger().debug(
                 f'Published telemetry #{self.tick_count}: '
@@ -178,6 +340,11 @@ class MockRoverTelemetryPublisher(Node):
             self.wp_current = (self.wp_current + 1) % 10
             self.wp_status = random.choice(["idle", "navigating", "reached"])
         self.wp_error_m = max(0.0, random.gauss(0.5, 0.2))
+
+        if self.tick_count % 1000 == 0:
+            self.mission_phase_state = random.choice(["MAPPING", "AUTONOMY", "TELEOP", "IDLE", "RETURN_TO_BASE"])
+            self.arm_state = random.choice(["STOWED", "DEPLOYING", "ACTIVE", "RETRACTING", "ERROR"])
+            self.speed_limit_val = random.choice([2.5, 5.0, 10.0, 15.0])
 
         if self.tick_count % 500 == 0:
             self.collision_active = True
@@ -213,6 +380,15 @@ class MockRoverTelemetryPublisher(Node):
 
         self.heartbeat_seq = (self.heartbeat_seq + 1) % 65536
         timestamp_ms = int((time.time() - self.start_time) * 1000)
+
+        # Generate simulated ranges
+        t = time.time()
+        raw_ranges = self._get_simulated_scan(t)
+        rounded_ranges = [round(r, 2) for r in raw_ranges]
+        
+        # Calculate forward range (closest in front -30 deg to +30 deg, which is index 75 to 105)
+        fwd_ranges = [r for r in raw_ranges[75:105] if r is not None]
+        fwd_range = min(fwd_ranges) if fwd_ranges else 12.0
 
         return {
             "Navigation": {
@@ -272,6 +448,25 @@ class MockRoverTelemetryPublisher(Node):
                 "node_motor_ctrl": random.random() > 0.001,
                 "rosout_last": "Mock node running smoothly.",
             },
+            "Sensors": {
+                "imu": {
+                    "available": False
+                },
+                "scan": {
+                    "available": True,
+                    "frame_id": "laser_frame",
+                    "angle_min_rad": -3.1416,
+                    "angle_max_rad": 3.1416,
+                    "range_min_m": 0.12,
+                    "range_max_m": 12.0,
+                    "num_points": 180,
+                    "num_valid": 180,
+                    "forward_range_m": round(fwd_range, 3),
+                    "min_range_m": min(rounded_ranges),
+                    "max_range_m": max(rounded_ranges),
+                    "ranges": rounded_ranges
+                }
+            }
         }
 
 

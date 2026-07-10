@@ -329,6 +329,27 @@ while True: time.sleep(1)
 
 Both will discover each other within 2-4 seconds on the same WiFi/LAN subnet.
 
+### Method E: SSH Tunneling (Connecting Remote Peers Across Internet/Subnets)
+
+If the rover and GCS are on different networks (e.g., across the internet, behind firewalls/NATs, or on restricted university WiFi), you can tunnel the TCP data stream over SSH:
+
+1. **Establish the SSH Tunnel**:
+   Forward local port `8091` to the remote rover's Global Connector TCP listener port `8090` (assumes SSH key authentication is configured):
+   ```bash
+   ssh -N -L 8091:localhost:8090 user@remote-rover-ip
+   ```
+   *(Alternatively, toggle **`SSH Tunnel to Rover`** in the TUI after configuring `GCS_SSH_HOST` / `GCS_SSH_USER` environment variables).*
+
+2. **Register the Tunnel Peer**:
+   On your local GCS dashboard (`http://localhost:8082`), go to the **Global Team Mesh** panel and add the peer manually:
+   - **Peer ID**: `remote-rover` (or any unique label)
+   - **IP Address**: `127.0.0.1` (points to the local end of the tunnel)
+   - **Port**: `8091` (the local forwarded port)
+   - **Role**: `Rover`
+   - Click **CONNECT PEER**.
+
+The local GCS will establish a secure connection through the SSH tunnel, and remote telemetry data will start flowing.
+
 ---
 
 ## 8. Global Connector — Team Mesh

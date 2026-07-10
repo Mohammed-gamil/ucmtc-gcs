@@ -413,10 +413,11 @@ class GlobalConnector:
         )
 
         while self._running.is_set():
-            try:
-                sock.sendto(packet, ("<broadcast>", DISCOVERY_PORT))
-            except OSError:
-                pass
+            for target in ["255.255.255.255", "<broadcast>"]:
+                try:
+                    sock.sendto(packet, (target, DISCOVERY_PORT))
+                except OSError:
+                    pass
             time.sleep(ANNOUNCE_INTERVAL)
         sock.close()
 
@@ -484,6 +485,9 @@ class GlobalConnector:
                 if not chunk:
                     break  # peer closed
                 buffer += chunk
+
+                if len(buffer) > 1_048_576:  # 1 MB safety cap
+                    raise ValueError("Receive buffer size limit exceeded without newline")
 
                 # Process complete lines (newline-delimited JSON)
                 while b"\n" in buffer:

@@ -1,0 +1,6 @@
+{
+  "domain": "0",
+  "discovery": "SUBNET",
+  "peer_id": "gcs-operator",
+  "local_ip": "192.168.128.244"
+}

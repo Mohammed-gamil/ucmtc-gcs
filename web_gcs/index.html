@@ -11,11 +11,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
     <!-- Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Chart.js -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+
+    <div id="sim-banner" class="sim-banner" style="display: none; background: rgba(245, 158, 11, 0.15); color: var(--amber); border-bottom: 1px solid var(--border-dim); text-align: center; font-size: 11px; padding: 4px; font-family: var(--font-mono); font-weight: bold; letter-spacing: 1px; width: 100%; z-index: 10000; position: relative;">
+        ▲ WARNING: SIMULATED DATA — NOT LIVE ▲
+    </div>
 
 <div class="gcs-wrap">
 
@@ -31,9 +33,21 @@
             <button class="tab-btn active" data-tab="tab-ops">
                 <i class="fa-solid fa-gauge-high"></i> OPERATIONS
             </button>
-            <button class="tab-btn" data-tab="tab-setup">
-                <i class="fa-solid fa-gears"></i> SETUP & CONNECT
+            <button class="tab-btn" data-tab="tab-topics">
+                <i class="fa-solid fa-circle-nodes"></i> LIVE TOPICS
             </button>
+            <button class="tab-btn" data-tab="tab-setup">
+                <i class="fa-solid fa-sliders"></i> SETTINGS
+            </button>
+            <a href="camera.html" class="tab-btn" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
+                <i class="fa-solid fa-video"></i> CAMERA VIEW
+            </a>
+            <a href="imu.html" class="tab-btn" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
+                <i class="fa-solid fa-compass"></i> IMU VIEW
+            </a>
+            <a href="lidar.html" class="tab-btn" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
+                <i class="fa-solid fa-circle-dot"></i> LIDAR MAP
+            </a>
         </div>
 
         <div class="topbar-center">
@@ -121,6 +135,10 @@
                             <span class="stat-val" id="nav-speed">0.00 km/h</span>
                         </div>
                         <div class="stat-row">
+                            <span class="stat-lbl">SPEED LIMIT</span>
+                            <span class="stat-val" id="nav-speed-limit">-- km/h</span>
+                        </div>
+                        <div class="stat-row">
                             <span class="stat-lbl">DISTANCE</span>
                             <span class="stat-val" id="nav-distance">0.0 m</span>
                         </div>
@@ -197,6 +215,9 @@
                     </button>
 
                     <div class="cmd-status" id="command-result-lbl">CONSOLE STANDBY</div>
+                    <div style="font-size: 8px; font-family: 'Share Tech Mono'; color: var(--cyan); margin-top: 8px; border: 1px dashed rgba(0, 212, 255, 0.2); padding: 4px; text-align: center; background: rgba(0, 212, 255, 0.02); letter-spacing: 0.5px;">
+                        ⌨️ KEYBOARD TELEOP: W/A/S/D OR ARROWS TO DRIVE (AUTO-ESTOP ON RELEASE)
+                    </div>
                 </div>
             </div>
         </div>
@@ -215,7 +236,7 @@
                         <!-- Bounded overlays -->
                         <div class="hud-badge-tl" id="camera-id-badge">CAM_01</div>
                         <div class="hud-rec-tr">
-                            <span class="rec-dot"></span> REC
+                            <span class="rec-dot"></span> REC &nbsp;<span id="hud-timestamp" style="color: var(--text-secondary); font-weight: normal;">00:00:00:00</span>
                         </div>
                         <div class="hud-overlay-bl" id="hud-fps">LINK_QUAL: 100% · 30.0 FPS</div>
                         <div class="hud-overlay-br">SYS_STATUS: ACTIVE</div>
@@ -260,6 +281,7 @@
                         <div class="subsystem-card">
                             <div class="subsystem-header">
                                 <span class="card-title">GLOBAL TEAM MESH</span>
+                                <span id="mesh-count-lbl" style="font-family: var(--font-mono); font-size: 9px; color: var(--text-secondary); margin-left: auto; margin-right: 8px;">0 PEERS</span>
                                 <span class="badge-status" id="mesh-pill">DISCOVERY</span>
                             </div>
                             <div class="subsystem-body">
@@ -282,6 +304,17 @@
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- LIDAR SCAN VIEW Card -->
+            <div class="panel panel-cyan" id="lidar-scan-panel" style="margin-top: 10px;">
+                <div class="ph">
+                    <div class="ph-title">LIDAR SCAN VIEW</div>
+                    <span class="ph-badge" id="scan-view-status">OFFLINE</span>
+                </div>
+                <div class="pb" style="align-items: center; justify-content: center; padding: 10px; min-height: 240px; background: #020408;">
+                    <canvas id="lidar-scan-canvas" width="800" height="220" style="max-width: 100%; height: auto; display: block; margin: 0 auto;"></canvas>
                 </div>
             </div>
         </div>
@@ -378,7 +411,9 @@
                 </div>
             </div>
 
-            <!-- LINK QUALITY Card -->
+
+
+        <!-- LINK QUALITY Card -->
             <div class="panel panel-blue card-diagnostic">
                 <div class="ph">
                     <div class="ph-title">LINK QUALITY</div>
@@ -405,26 +440,24 @@
                     </div>
                 </div>
             </div>
-            
-            <!-- Hidden charts and elements to satisfy original bindings -->
-            <div style="display:none;">
-                <canvas id="realtime-chart"></canvas>
-                <div id="telemetry-state-lbl"></div>
-                <div id="safety-mode-lbl"></div>
-                <span id="rosout-lbl"></span>
-                <span id="cpu-lbl"></span>
-                <div id="cpu-fill"></div>
-                <span id="gpu-lbl"></span>
-                <div id="gpu-fill"></div>
-                <span id="ram-lbl"></span>
-                <div id="ram-fill"></div>
-                <span id="temp-lbl"></span>
-                <span id="uptime-lbl"></span>
-                <div id="node-lane"><span class="ndot"></span></div>
-                <div id="node-avoid"><span class="ndot"></span></div>
-                <div id="node-nav"><span class="ndot"></span></div>
-                <div id="node-vision"><span class="ndot"></span></div>
-                <div id="node-motor"><span class="ndot"></span></div>
+
+            <!-- MISSION & PAYLOAD Card -->
+            <div class="panel panel-amber card-diagnostic" style="margin-top: 10px;">
+                <div class="ph">
+                    <div class="ph-title">MISSION & PAYLOAD</div>
+                </div>
+                <div class="pb">
+                    <div class="diag-list">
+                        <div class="diag-row">
+                            <span class="diag-lbl">Mission Phase</span>
+                            <span class="dv" id="mission-phase-val">--</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Arm Status</span>
+                            <span class="dv" id="payload-arm-val">--</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         </main>
@@ -522,6 +555,76 @@
                         <pre class="terminal-console amber-term" id="diag-console-logs">GCS Diagnostic interface initialized. Awaiting commands...</pre>
                     </div>
                 </div>
+
+                <!-- Jetson SSH Remote Control Panel -->
+                <div class="panel panel-cyan" style="margin-top: 15px;">
+                    <div class="ph">
+                        <div class="ph-title">Jetson SSH Remote Control</div>
+                        <span class="ph-badge">Remote Console</span>
+                    </div>
+                    <div class="pb">
+                        <div style="display: grid; grid-template-columns: 1.5fr 1fr; gap: 8px; margin-bottom: 8px;">
+                            <div class="form-row">
+                                <label for="ssh-host">Jetson Host/IP</label>
+                                <input type="text" id="ssh-host" class="setup-input" value="192.168.1.100">
+                            </div>
+                            <div class="form-row">
+                                <label for="ssh-port">SSH Port</label>
+                                <input type="number" id="ssh-port" class="setup-input" value="22">
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 8px; margin-bottom: 8px;">
+                            <div class="form-row">
+                                <label for="ssh-user">Username</label>
+                                <input type="text" id="ssh-user" class="setup-input" value="ubuntu">
+                            </div>
+                            <div class="form-row">
+                                <label for="ssh-password">Password (Optional)</label>
+                                <input type="password" id="ssh-password" class="setup-input" value="" placeholder="Use key auth if blank">
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                            <button id="btn-ssh-tunnel-start" class="btn-primary" style="flex: 1; height: 32px; font-size: 10px;">
+                                <i class="fa-solid fa-link"></i> ESTABLISH TUNNEL
+                            </button>
+                            <button id="btn-ssh-tunnel-stop" class="btn-primary" style="flex: 1; height: 32px; font-size: 10px; border-color: var(--red-alert); color: var(--red-alert);" disabled>
+                                <i class="fa-solid fa-unlink"></i> CLOSE TUNNEL
+                            </button>
+                        </div>
+
+                        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                            <button id="btn-ssh-launch-bringup" class="btn-primary" style="flex: 1; height: 32px; font-size: 10px; border-color: var(--green); color: var(--green);">
+                                <i class="fa-solid fa-play"></i> START BRINGUP
+                            </button>
+                            <button id="btn-ssh-stop-bringup" class="btn-primary" style="flex: 1; height: 32px; font-size: 10px; border-color: var(--red-alert); color: var(--red-alert);">
+                                <i class="fa-solid fa-stop"></i> STOP BRINGUP
+                            </button>
+                        </div>
+
+                        <div class="form-row" style="margin-bottom: 6px;">
+                            <label for="ssh-cmd-input">Execute Remote Command</label>
+                            <div style="display: flex; gap: 6px;">
+                                <input type="text" id="ssh-cmd-input" class="setup-input" placeholder="e.g. nvidia-smi, ros2 topic list" style="flex: 1;">
+                                <button id="btn-ssh-exec-cmd" class="btn-primary" style="padding: 0 12px; height: 32px; font-size: 10px;">
+                                    EXECUTE
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span class="stat-lbl" style="margin-bottom: 0;">Tunnel Connection</span>
+                            <span id="ssh-tunnel-status-lbl" class="dv err">DISCONNECTED</span>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                            <span class="stat-lbl" style="margin-bottom: 0;">Remote ROS2 Nodes</span>
+                            <span id="ssh-nodes-status-lbl" class="dv err">OFFLINE</span>
+                        </div>
+
+                        <div class="stat-lbl" style="margin-top: 6px; margin-bottom: 4px;">SSH Console Output</div>
+                        <pre class="terminal-console cyan-term" id="ssh-console-logs" style="height: 100px; font-size: 10px; line-height: 1.4;">SSH Remote Command console initialized.</pre>
+                    </div>
+                </div>
             </div>
 
             <!-- Right Column: Subsystems and Team Mesh -->
@@ -546,7 +649,7 @@
                             </thead>
                             <tbody>
                                 <tr>
-                                    <td>Motor Control</td>
+                                    <td id="subsystem-label-motor_control">Motor Control</td>
                                     <td><code>/motor_control_node</code></td>
                                     <td>
                                         <div class="status-indicator">
@@ -554,12 +657,12 @@
                                             <span id="setup-node-motor-lbl" class="dv err">OFFLINE</span>
                                         </div>
                                     </td>
-                                    <td><code>/rover/commands/motor</code></td>
+                                    <td><code id="subsystem-path-motor_control">/rover/commands/motor</code></td>
                                     <td>RELIABLE/VOLATILE</td>
                                     <td id="setup-node-motor-heartbeat" style="text-align: right;">--</td>
                                 </tr>
                                 <tr>
-                                    <td>Lane Detection</td>
+                                    <td id="subsystem-label-lane_detection">Lane Detection</td>
                                     <td><code>/vision_node</code> (Lane)</td>
                                     <td>
                                         <div class="status-indicator">
@@ -567,12 +670,12 @@
                                             <span id="setup-node-lane-lbl" class="dv err">OFFLINE</span>
                                         </div>
                                     </td>
-                                    <td><code>/rover/sensors/lane</code></td>
+                                    <td><code id="subsystem-path-lane_detection">/rover/sensors/lane</code></td>
                                     <td>BEST_EFFORT/VOLATILE</td>
                                     <td id="setup-node-lane-heartbeat" style="text-align: right;">--</td>
                                 </tr>
                                 <tr>
-                                    <td>Obstacle Avoidance</td>
+                                    <td id="subsystem-label-obstacle_avoidance">Obstacle Avoidance</td>
                                     <td><code>/safety_node</code> (Laser)</td>
                                     <td>
                                         <div class="status-indicator">
@@ -580,12 +683,12 @@
                                             <span id="setup-node-avoid-lbl" class="dv err">OFFLINE</span>
                                         </div>
                                     </td>
-                                    <td><code>/rover/sensors/laser</code></td>
+                                    <td><code id="subsystem-path-obstacle_avoidance">/rover/sensors/laser</code></td>
                                     <td>BEST_EFFORT/VOLATILE</td>
                                     <td id="setup-node-avoid-heartbeat" style="text-align: right;">--</td>
                                 </tr>
                                 <tr>
-                                    <td>Waypoint Navigator</td>
+                                    <td id="subsystem-label-waypoint_navigator">Waypoint Navigator</td>
                                     <td><code>/navigation_node</code></td>
                                     <td>
                                         <div class="status-indicator">
@@ -593,12 +696,12 @@
                                             <span id="setup-node-nav-lbl" class="dv err">OFFLINE</span>
                                         </div>
                                     </td>
-                                    <td><code>/rover/commands/nav</code></td>
+                                    <td><code id="subsystem-path-waypoint_navigator">/rover/commands/nav</code></td>
                                     <td>RELIABLE/VOLATILE</td>
                                     <td id="setup-node-nav-heartbeat" style="text-align: right;">--</td>
                                 </tr>
                                 <tr>
-                                    <td>Image Recognition</td>
+                                    <td id="subsystem-label-image_recognition">Image Recognition</td>
                                     <td><code>/vision_node</code> (Core)</td>
                                     <td>
                                         <div class="status-indicator">
@@ -606,12 +709,12 @@
                                             <span id="setup-node-vision-lbl" class="dv err">OFFLINE</span>
                                         </div>
                                     </td>
-                                    <td><code>/rover/sensors/camera</code></td>
+                                    <td><code id="subsystem-path-image_recognition">/img</code></td>
                                     <td>BEST_EFFORT/VOLATILE</td>
                                     <td id="setup-node-vision-heartbeat" style="text-align: right;">--</td>
                                 </tr>
                                 <tr>
-                                    <td>Telemetry Aggregator</td>
+                                    <td id="subsystem-label-telemetry_aggregator">Telemetry Aggregator</td>
                                     <td><code>/telemetry_aggregator</code></td>
                                     <td>
                                         <div class="status-indicator">
@@ -619,12 +722,67 @@
                                             <span id="setup-node-telem-lbl" class="dv err">OFFLINE</span>
                                         </div>
                                     </td>
-                                    <td><code>/rover/telemetry</code></td>
+                                    <td><code id="subsystem-path-telemetry_aggregator">/rover/telemetry</code></td>
                                     <td>RELIABLE/VOLATILE</td>
                                     <td id="setup-node-telem-heartbeat" style="text-align: right;">--</td>
                                 </tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+
+                <!-- ROS 2 Topic Configuration Panel -->
+                <div class="panel panel-amber" id="topic-config-panel" style="margin-top: 10px; margin-bottom: 10px;">
+                    <div class="ph">
+                        <div class="ph-title">ROS 2 Topic Configuration</div>
+                        <span class="ph-badge" style="color: var(--amber); border-color: var(--amber); background: transparent;">Customizer</span>
+                    </div>
+                    <div class="pb" style="padding: 10px 15px;">
+                        <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 10px; line-height: 1.4;">
+                            Customize labels and paths for both Subsystems and Standard topics. Changes to bridged topics (Motor, Telemetry, cmd_vel) will re-bind the active ROS 2 node.
+                        </p>
+                        
+                        <div style="max-height: 250px; overflow-y: auto; padding-right: 5px; margin-bottom: 10px;" id="topics-edit-list">
+                            <!-- Dynamically populated edit fields -->
+                        </div>
+                        
+                        <div style="display: flex; gap: 8px;">
+                            <button id="btn-save-topics" class="btn-primary" style="flex: 1; height: 32px; border-color: var(--green-op); color: var(--green-op);">
+                                <i class="fa-solid fa-floppy-disk"></i> APPLY CHANGES
+                            </button>
+                            <button id="btn-reset-topics" class="btn-primary" style="flex: 1; height: 32px; border-color: var(--red-alert); color: var(--red-alert);">
+                                <i class="fa-solid fa-rotate-left"></i> REVERT TO DEFAULT
+                            </button>
+                        </div>
+                        <div class="sub-log" id="topics-config-status" style="margin-top: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);">Topic configuration synchronized</div>
+                    </div>
+                </div>
+
+                <!-- ROS 2 Network Topics Panel -->
+                <div class="panel panel-cyan" id="network-topics-panel" style="margin-top: 10px; margin-bottom: 10px;">
+                    <div class="ph">
+                        <div class="ph-title">ROS 2 Active Network Topics</div>
+                        <button id="btn-refresh-topics" class="btn-primary" style="padding: 0 10px; height: 20px; font-size: 9px; line-height: 1; border-color: var(--cyan); color: var(--cyan);">
+                            <i class="fa-solid fa-arrows-rotate"></i> REFRESH
+                        </button>
+                    </div>
+                    <div class="pb" style="padding: 10px 15px;">
+                        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                            <input type="text" id="topic-search" class="setup-input" placeholder="Filter topics (Click topic to copy)..." style="font-size: 11px; height: 26px; flex: 1;">
+                        </div>
+                        <div style="max-height: 200px; overflow-y: auto; background: var(--bg-void); border: 1px solid var(--border-dim); border-radius: 4px; padding: 6px;">
+                            <table class="setup-table" style="margin: 0; width: 100%;">
+                                <thead style="position: sticky; top: 0; background: var(--bg-panel); z-index: 1;">
+                                    <tr>
+                                        <th style="font-size: 9px; padding: 4px 6px;">Topic Name</th>
+                                        <th style="font-size: 9px; padding: 4px 6px; width: 120px;">Msg Type</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="network-topics-list" style="font-family: var(--font-mono); font-size: 10px;">
+                                    <!-- Populated dynamically -->
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 
@@ -657,6 +815,37 @@
             </div>
         </div>
     </div>
+
+    <!-- ═══════════════════════ LIVE TELEMETRY / TOPICS TAB ═══════════════════════ -->
+    <div id="tab-topics" class="tab-content">
+        <div style="display: flex; gap: 10px; height: calc(100vh - 120px); min-height: 500px;">
+            <!-- Left Pane: Topics List Sidebar -->
+            <div class="panel panel-cyan" style="width: 350px; display: flex; flex-direction: column; margin-bottom: 0;">
+                <div class="ph">
+                    <div class="ph-title">ROS 2 TOPIC REGISTRY</div>
+                    <span class="ph-badge" id="topics-count-badge">0 topics</span>
+                </div>
+                <div class="pb" style="flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px;" id="topics-sidebar-list">
+                    <!-- Topics will be populated dynamically -->
+                </div>
+            </div>
+            
+            <!-- Right Pane: Active Widgets Grid -->
+            <div class="panel panel-green" style="flex: 1; display: flex; flex-direction: column; margin-bottom: 0;">
+                <div class="ph">
+                    <div class="ph-title">ACTIVE DATA MONITORS</div>
+                    <span class="ph-badge">Lazy WebSocket Rooms</span>
+                </div>
+                <div class="pb" style="flex: 1; overflow-y: auto; padding: 15px; display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 12px; align-content: start;" id="active-widgets-grid">
+                    <!-- Dynamic widgets will mount here -->
+                    <div id="widgets-empty-state" style="grid-column: 1 / -1; text-align: center; color: var(--text-secondary); font-family: var(--font-mono); padding: 60px;">
+                        ▲ NO ACTIVE TOPIC MONITORS ▲<br>
+                        <span style="font-size: 11px; opacity: 0.7; margin-top: 8px; display: inline-block;">Select topics from the sidebar registry to start receiving live streams.</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
 
 <!-- ═══════════════ TEST SUITE DIALOG ═══════════════ -->
@@ -680,6 +869,7 @@
     </div>
 </div>
 
+<script src="socket.io.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

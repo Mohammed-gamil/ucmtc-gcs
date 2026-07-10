@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 import math
 import random
-import time
 from typing import Any
 
-from rover_core.ros_compat import Node, String, ensure_ros_initialized, rclpy, run_node
+from rover_core.ros_compat import Node, String, ensure_ros_initialized, run_node
 from rover_core.telemetry_utils import (
     COMMAND_QOS,
     SAFETY_HEARTBEAT_QOS,
@@ -16,6 +15,7 @@ from rover_core.telemetry_utils import (
     decode_json_message,
     make_navigation_payload,
     random_navigation_defaults,
+    get_topic_path,
 )
 
 # SubscriptionOptions with deadline callback is only available in real rclpy.
@@ -88,22 +88,12 @@ class NavigationNode(Node):
         period_sec = 1.0 / max(publish_rate_hz, 0.1)
 
         # ── Pub / Sub ────────────────────────────────────────────────────────
-        # Nav telemetry: BEST_EFFORT sensor stream.
-        self._publisher = self.create_publisher(
-            String,
-            "/rover/telemetry/nav",
-            SENSOR_QOS,
-        )
-        # Motor commands: RELIABLE + LIFESPAN.
-        self._command_subscription = self.create_subscription(
-            String,
-            "/rover/commands/motor",
-            self._motor_command_callback,
-            COMMAND_QOS,
-        )
-        # Safety state: SAFETY_HEARTBEAT_QOS — must match SafetyNode publisher.
-        # A deadline callback fires when no safety message arrives in 500 ms.
-        self._safety_subscription = self._create_safety_subscription()
+        self._init_topics()
+
+        # ── Dynamic Config Checker ──
+        self._config_mtime = 0.0
+        self._check_topic_config()
+        self._config_timer = self.create_timer(1.0, self._check_topic_config)
 
         # ── State ────────────────────────────────────────────────────────────
         self._start_stamp = self.get_clock().now()
@@ -126,21 +116,67 @@ class NavigationNode(Node):
             f"Navigation node ready (rate={publish_rate_hz:.1f} Hz)"
         )
 
+    def _init_topics(self) -> None:
+        nav_topic = get_topic_path("telemetry_nav", "/rover/telemetry/nav")
+        motor_topic = get_topic_path("motor_control", "/rover/commands/motor")
+        safety_topic = get_topic_path("telemetry_safety", "/rover/telemetry/safety")
+
+        self._publisher = self.create_publisher(
+            String,
+            nav_topic,
+            SENSOR_QOS,
+        )
+        self._command_subscription = self.create_subscription(
+            String,
+            motor_topic,
+            self._motor_command_callback,
+            COMMAND_QOS,
+        )
+        self._safety_subscription = self._create_safety_subscription(safety_topic)
+
+    def _check_topic_config(self) -> None:
+        import os
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.normpath(os.path.join(base_dir, "../../../../web_gcs/topic_config.json"))
+            if os.path.exists(config_path):
+                mtime = os.path.getmtime(config_path)
+                if self._config_mtime != 0.0 and mtime != self._config_mtime:
+                    self.get_logger().info("topic_config.json changed! Reconfiguring topics...")
+                    self._config_mtime = mtime
+                    self._update_topics()
+                elif self._config_mtime == 0.0:
+                    self._config_mtime = mtime
+        except Exception:
+            pass
+
+    def _update_topics(self) -> None:
+        try:
+            if hasattr(self, "_publisher") and self._publisher:
+                self.destroy_publisher(self._publisher)
+                self._publisher = None
+            if hasattr(self, "_command_subscription") and self._command_subscription:
+                self.destroy_subscription(self._command_subscription)
+                self._command_subscription = None
+            if hasattr(self, "_safety_subscription") and self._safety_subscription:
+                self.destroy_subscription(self._safety_subscription)
+                self._safety_subscription = None
+            
+            self._init_topics()
+            self.get_logger().info("NavigationNode topics updated successfully.")
+        except Exception as e:
+            self.get_logger().error(f"Error reconfiguring NavigationNode topics: {e}")
+
     # ── Safety subscription with deadline callback ───────────────────────────
 
-    def _create_safety_subscription(self):
-        """Create /rover/telemetry/safety subscription with DEADLINE event handler.
-
-        When no safety message arrives within 500 ms the rover immediately
-        enters a blocked state — this is the safe fallback for a dead safety
-        node, network partition, or software hang.
-        """
+    def _create_safety_subscription(self, safety_topic: str):
+        """Create safety subscription with DEADLINE event handler."""
         if _QOS_EVENTS_AVAILABLE:
             event_callbacks = SubscriptionEventCallbacks()
             event_callbacks.deadline = self._on_safety_deadline_missed
             return self.create_subscription(
                 String,
-                "/rover/telemetry/safety",
+                safety_topic,
                 self._safety_callback,
                 SAFETY_HEARTBEAT_QOS,
                 event_callbacks=event_callbacks,
@@ -148,7 +184,7 @@ class NavigationNode(Node):
         # Fallback: no QoS event support — use matching QoS but no callback.
         return self.create_subscription(
             String,
-            "/rover/telemetry/safety",
+            safety_topic,
             self._safety_callback,
             SAFETY_HEARTBEAT_QOS,
         )

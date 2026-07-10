@@ -18,14 +18,14 @@ safety_node:
 
 vision_node:
   ros__parameters:
-    publish_rate_hz: 30.0      # [10.0, 60.0] Vision inference publish rate
+    publish_rate_hz: 30.0      # [1.0, 100.0] Vision inference publish rate
     camera_index: 0            # OpenCV camera device index
     ai_model_path: ""          # Path to ONNX/TRT model; empty = simulate
     confidence_threshold: 0.55 # [0.0, 1.0] Min confidence for detection
 
 motor_control_node:
   ros__parameters:
-    publish_rate_hz: 5.0       # [1.0, 20.0] Heartbeat publish rate
+    publish_rate_hz: 5.0       # [1.0, 50.0] Heartbeat publish rate
     max_speed_kmh: 15.0        # [0.0, 30.0] Hard speed cap
 
 telemetry_aggregator:

@@ -2,7 +2,7 @@
 Setup configuration for rover_core ROS2 package.
 
 Defines package metadata, dependencies, and console script entry points
-for the three rover nodes (navigation, safety, vision).
+for the five rover nodes (navigation, safety, vision, motor_control, telemetry_aggregator).
 """
 
 from setuptools import setup, find_packages

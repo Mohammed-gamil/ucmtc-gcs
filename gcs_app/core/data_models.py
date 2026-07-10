@@ -271,11 +271,13 @@ class TelemetryPayload:
         """
         payload = _ensure_mapping(data, "telemetry payload")
 
-        expected_top_level = {"Navigation", "Safety", "Vision", "Jetson", "Communication", "ROS"}
+        required_top_level = {"Navigation", "Safety", "Vision", "Jetson", "Communication", "ROS"}
+        allowed_optional = {"Sensors", "GPS", "Odom", "Battery", "CmdVelEcho", "TF", "Rosout"}
         actual_top_level = set(payload)
-        if actual_top_level != expected_top_level:
-            missing = sorted(expected_top_level - actual_top_level)
-            extra = sorted(actual_top_level - expected_top_level)
+        
+        missing = sorted(required_top_level - actual_top_level)
+        extra = sorted(actual_top_level - required_top_level - allowed_optional)
+        if missing or extra:
             problems: list[str] = []
             if missing:
                 problems.append(f"missing keys: {', '.join(missing)}")

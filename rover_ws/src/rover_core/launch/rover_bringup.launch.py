@@ -39,9 +39,15 @@ def generate_launch_description():
         default_value="info",
         description="Logging level for all rover nodes (debug/info/warn/error/fatal)",
     )
+    cmd_vel_topic_arg = DeclareLaunchArgument(
+        "cmd_vel_topic",
+        default_value="/cmd_vel",
+        description="Topic name for standard cmd_vel commands",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     log_level = LaunchConfiguration("log_level")
+    cmd_vel_topic = LaunchConfiguration("cmd_vel_topic")
 
     # ── Shared parameter file ─────────────────────────────────────────────────
     # FindPackageShare resolves to the installed share directory, avoiding
@@ -73,6 +79,8 @@ def generate_launch_description():
         package="rover_core",
         executable="safety_node",
         name="safety_node",
+        respawn=True,
+        respawn_delay=2.0,
         **common_kwargs,
     )
 
@@ -87,19 +95,32 @@ def generate_launch_description():
         package="rover_core",
         executable="motor_control_node",
         name="motor_control_node",
-        **common_kwargs,
+        output="screen",
+        parameters=[
+            params_file,
+            {"use_sim_time": use_sim_time},
+            {"cmd_vel_topic": cmd_vel_topic},
+        ],
+        arguments=["--ros-args", "--log-level", log_level],
     )
 
     telemetry_aggregator = Node(
         package="rover_core",
         executable="telemetry_aggregator",
         name="telemetry_aggregator",
-        **common_kwargs,
+        output="screen",
+        parameters=[
+            params_file,
+            {"use_sim_time": use_sim_time},
+            {"cmd_vel_topic": cmd_vel_topic},
+        ],
+        arguments=["--ros-args", "--log-level", log_level],
     )
 
     return LaunchDescription([
         use_sim_time_arg,
         log_level_arg,
+        cmd_vel_topic_arg,
         navigation_node,
         safety_node,
         vision_node,

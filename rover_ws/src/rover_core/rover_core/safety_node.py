@@ -7,12 +7,13 @@ import random
 import time
 from typing import Any
 
-from rover_core.ros_compat import Node, String, ensure_ros_initialized, rclpy, run_node
+from rover_core.ros_compat import Node, String, ensure_ros_initialized, run_node
 from rover_core.telemetry_utils import (
     COMMAND_QOS,
     SAFETY_HEARTBEAT_QOS,
     decode_json_message,
     make_safety_payload,
+    get_topic_path,
 )
 
 # rclpy.parameter imports are optional — ParameterDescriptor is available only
@@ -109,20 +110,12 @@ class SafetyNode(Node):
         period_sec = 1.0 / max(publish_rate_hz, 1.0)
 
         # ── Pub / Sub ────────────────────────────────────────────────────────
-        # Safety telemetry: SAFETY_HEARTBEAT_QOS — RELIABLE + DEADLINE(500ms) + LIFESPAN(1s)
-        self._publisher = self.create_publisher(
-            String,
-            "/rover/telemetry/safety",
-            SAFETY_HEARTBEAT_QOS,
-        )
-        # Motor commands: RELIABLE + LIFESPAN(200ms) — never miss an e-stop,
-        # discard stale commands.
-        self._command_subscription = self.create_subscription(
-            String,
-            "/rover/commands/motor",
-            self._motor_command_callback,
-            COMMAND_QOS,
-        )
+        self._init_topics()
+
+        # ── Dynamic Config Checker ──
+        self._config_mtime = 0.0
+        self._check_topic_config()
+        self._config_timer = self.create_timer(1.0, self._check_topic_config)
 
         # ── State ────────────────────────────────────────────────────────────
         # Use node clock (respects use_sim_time) for all timing.
@@ -146,7 +139,51 @@ class SafetyNode(Node):
             f"Safety node ready (rate={publish_rate_hz:.1f} Hz, "
             f"DEADLINE=500ms, LIFESPAN=1s)"
         )
+    def _init_topics(self) -> None:
+        safety_topic = get_topic_path("telemetry_safety", "/rover/telemetry/safety")
+        motor_topic = get_topic_path("motor_control", "/rover/commands/motor")
 
+        self._publisher = self.create_publisher(
+            String,
+            safety_topic,
+            SAFETY_HEARTBEAT_QOS,
+        )
+        self._command_subscription = self.create_subscription(
+            String,
+            motor_topic,
+            self._motor_command_callback,
+            COMMAND_QOS,
+        )
+
+    def _check_topic_config(self) -> None:
+        import os
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            config_path = os.path.normpath(os.path.join(base_dir, "../../../../web_gcs/topic_config.json"))
+            if os.path.exists(config_path):
+                mtime = os.path.getmtime(config_path)
+                if self._config_mtime != 0.0 and mtime != self._config_mtime:
+                    self.get_logger().info("topic_config.json changed! Reconfiguring topics...")
+                    self._config_mtime = mtime
+                    self._update_topics()
+                elif self._config_mtime == 0.0:
+                    self._config_mtime = mtime
+        except Exception:
+            pass
+
+    def _update_topics(self) -> None:
+        try:
+            if hasattr(self, "_publisher") and self._publisher:
+                self.destroy_publisher(self._publisher)
+                self._publisher = None
+            if hasattr(self, "_command_subscription") and self._command_subscription:
+                self.destroy_subscription(self._command_subscription)
+                self._command_subscription = None
+            
+            self._init_topics()
+            self.get_logger().info("SafetyNode topics updated successfully.")
+        except Exception as e:
+            self.get_logger().error(f"Error reconfiguring SafetyNode topics: {e}")
     # ── Hardware / sensor simulation ─────────────────────────────────────────
 
     def _check_estop_hardware(self) -> dict[str, Any]:

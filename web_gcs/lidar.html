@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GCS — LiDAR Telemetry Mapping</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body, html {
+            margin: 0; padding: 0;
+            height: 100vh;
+            width: 100vw;
+            background-color: var(--bg-void, #010306);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .cam-topbar {
+            height: 48px;
+            background: rgba(13, 20, 36, 0.9);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+            flex-shrink: 0;
+        }
+        .brand {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 2px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .brand:hover {
+            color: var(--cyan);
+        }
+        .content-container {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: row;
+            padding: 20px;
+            gap: 20px;
+            overflow: hidden;
+            height: calc(100vh - 48px);
+        }
+        
+        .side-panel {
+            width: 320px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+        
+        .map-panel {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-panel);
+            border: 1px solid var(--border-dim);
+            border-top: 3px solid var(--cyan);
+            border-radius: 6px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .map-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: rgba(13, 17, 23, 0.6);
+            border-bottom: 1px solid var(--border-dim);
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 600;
+            color: var(--text-bright);
+        }
+        
+        .canvas-container {
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            background: #020509;
+        }
+        
+        #lidar-canvas {
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+        }
+
+        .status-badge {
+            padding: 4px 10px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 14px;
+            border: 1px solid var(--red-alert);
+            color: var(--red-alert);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .status-badge.live {
+            border-color: var(--green-op);
+            color: var(--green-op);
+        }
+
+        .info-group {
+            margin-bottom: 15px;
+        }
+        .info-group h4 {
+            font-family: 'Rajdhani', sans-serif;
+            color: var(--text-secondary);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+        .info-label {
+            font-family: 'Rajdhani', sans-serif;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+        
+        /* Zoom & Controls */
+        .control-btn {
+            background: var(--bg-raised);
+            border: 1px solid var(--border-dim);
+            color: var(--text-bright);
+            padding: 6px 12px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 12px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+        .control-btn:hover {
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+        .control-btn.active {
+            background: rgba(0, 212, 255, 0.1);
+            border-color: var(--cyan);
+            color: var(--cyan);
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 5px;
+        }
+        
+        .alert-panel {
+            padding: 12px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            border-radius: 4px;
+            color: var(--red-alert);
+            font-family: 'Rajdhani', sans-serif;
+            display: none;
+            margin-top: 10px;
+        }
+        
+        .alert-panel.active {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            animation: pulse-red 2s infinite;
+        }
+        
+        @keyframes pulse-red {
+            0% { border-color: rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.1); }
+            50% { border-color: rgba(239, 68, 68, 0.6); background: rgba(239, 68, 68, 0.2); }
+            100% { border-color: rgba(239, 68, 68, 0.2); background: rgba(239, 68, 68, 0.1); }
+        }
+        
+        .no-signal-overlay {
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(1, 3, 6, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: var(--red-alert);
+            font-family: 'Rajdhani', sans-serif;
+            gap: 15px;
+            z-index: 10;
+        }
+        .no-signal-overlay h3 {
+            font-size: 24px;
+            letter-spacing: 4px;
+            font-weight: 700;
+        }
+        
+        .pb {
+            padding: 15px;
+            flex-grow: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="cam-topbar">
+        <a href="index.html" class="brand">
+            <i class="fa-solid fa-arrow-left"></i>
+            <span>RETURN TO GCS DASHBOARD</span>
+        </a>
+        <div class="brand" style="color: var(--cyan);">
+            <i class="fa-solid fa-circle-notch fa-spin"></i> LIVE LIDAR MAPPING
+        </div>
+        <div class="status-badge" id="status-badge">
+            <span class="chip-dot d-offline" id="status-dot"></span>
+            <span id="status-text">AWAITING SIGNAL</span>
+        </div>
+    </div>
+    
+    <div class="content-container">
+        <!-- Sidebar Controls / Parameters -->
+        <div class="side-panel">
+            <div class="panel panel-cyan" style="height: 100%;">
+                <div class="ph">
+                    <span class="ph-title"><i class="fa-solid fa-sliders"></i> SCANNER METRICS</span>
+                </div>
+                <div class="pb">
+                    <div class="info-group">
+                        <h4>ROS 2 Configuration</h4>
+                        <div class="info-row">
+                            <span class="info-label">Topic</span>
+                            <span class="dv cyan">/scan</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Frame ID</span>
+                            <span class="dv" id="lbl-frame-id">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Total Points</span>
+                            <span class="dv" id="lbl-points">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-group">
+                        <h4>Scanner Bounds</h4>
+                        <div class="info-row">
+                            <span class="info-label">Angle Range</span>
+                            <span class="dv" id="lbl-angle-range">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Distance Limits</span>
+                            <span class="dv" id="lbl-distance-limits">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-group">
+                        <h4>Detection Data</h4>
+                        <div class="info-row">
+                            <span class="info-label">Min Detected</span>
+                            <span class="dv" id="lbl-min-dist">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Max Detected</span>
+                            <span class="dv" id="lbl-max-dist">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Forward Clearance</span>
+                            <span class="dv" id="lbl-fwd-clearance">--</span>
+                        </div>
+                    </div>
+
+                    <div class="info-group">
+                        <h4>Display Zoom</h4>
+                        <div class="btn-group" id="zoom-controls">
+                            <button class="control-btn" data-zoom="4">3M</button>
+                            <button class="control-btn" data-zoom="6">6M</button>
+                            <button class="control-btn active" data-zoom="12">12M</button>
+                            <button class="control-btn" data-zoom="18">18M</button>
+                        </div>
+                    </div>
+
+                    <div class="info-group">
+                        <h4>Render Style</h4>
+                        <div class="btn-group" id="style-controls">
+                            <button class="control-btn active" data-style="dots">DOTS</button>
+                            <button class="control-btn" data-style="lines">LINES</button>
+                            <button class="control-btn" data-style="sweep">SWEEP</button>
+                        </div>
+                    </div>
+
+                    <!-- Obstacle Alert Alert -->
+                    <div class="alert-panel" id="obstacle-alert">
+                        <i class="fa-solid fa-triangle-exclamation fa-lg"></i>
+                        <div>
+                            <strong style="display:block; font-size:14px; letter-spacing:1px;">OBSTACLE DETECTED</strong>
+                            <span style="font-size:11px;">Forward clearance critical!</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Large Radar mapping canvas -->
+        <div class="map-panel">
+            <div class="map-header">
+                <span><i class="fa-solid fa-crosshairs"></i> POLAR SCAN TARGETING GRID</span>
+                <span id="scan-hz" style="font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);">SCAN RATE: -- HZ</span>
+            </div>
+            <div class="canvas-container">
+                <div class="no-signal-overlay" id="no-signal-overlay">
+                    <i class="fa-solid fa-ban fa-3x"></i>
+                    <h3>NO SENSOR SIGNAL</h3>
+                    <p style="font-size:14px; color:var(--text-secondary);">Verify rover hardware & /scan publisher</p>
+                </div>
+                <canvas id="lidar-canvas" width="600" height="600"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById("lidar-canvas");
+        const ctx = canvas.getContext("2d");
+        const statusBadge = document.getElementById("status-badge");
+        const statusDot = document.getElementById("status-dot");
+        const statusText = document.getElementById("status-text");
+        const noSignalOverlay = document.getElementById("no-signal-overlay");
+        const obstacleAlert = document.getElementById("obstacle-alert");
+        
+        // DOM Info Elements
+        const elFrameId = document.getElementById("lbl-frame-id");
+        const elPoints = document.getElementById("lbl-points");
+        const elAngleRange = document.getElementById("lbl-angle-range");
+        const elDistanceLimits = document.getElementById("lbl-distance-limits");
+        const elMinDist = document.getElementById("lbl-min-dist");
+        const elMaxDist = document.getElementById("lbl-max-dist");
+        const elFwdClearance = document.getElementById("lbl-fwd-clearance");
+        const elScanHz = document.getElementById("scan-hz");
+
+        let lastReceived = 0;
+        let lastScanTime = 0;
+        let scanFrames = 0;
+        let scanHz = 0;
+        let activeTelemetry = null;
+        
+        // Control Options
+        let currentMaxRange = 12.0; // max meters shown in canvas
+        let renderStyle = "dots"; // 'dots', 'lines', 'sweep'
+        let radarSweepAngle = 0;
+
+        // Resize Canvas dynamically to maintain square ratio
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            const size = Math.min(container.clientWidth, container.clientHeight) - 10;
+            canvas.width = size;
+            canvas.height = size;
+            drawGrid();
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        setTimeout(resizeCanvas, 100);
+
+        // Zoom Control Event Listeners
+        document.querySelectorAll("#zoom-controls button").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                document.querySelectorAll("#zoom-controls button").forEach(b => b.classList.remove("active"));
+                e.target.classList.add("active");
+                currentMaxRange = parseFloat(e.target.dataset.zoom);
+            });
+        });
+
+        // Style Control Event Listeners
+        document.querySelectorAll("#style-controls button").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                document.querySelectorAll("#style-controls button").forEach(b => b.classList.remove("active"));
+                e.target.classList.add("active");
+                renderStyle = e.target.dataset.style;
+            });
+        });
+
+        // Calculate scan Hz
+        setInterval(() => {
+            if (Date.now() - lastReceived < 2000 && scanFrames > 0) {
+                scanHz = scanFrames;
+                elScanHz.textContent = `SCAN RATE: ${scanHz} HZ`;
+                scanFrames = 0;
+            } else {
+                elScanHz.textContent = "SCAN RATE: 0 HZ";
+            }
+        }, 1000);
+
+        // Grid drawing
+        function drawGrid() {
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const r = canvas.width / 2;
+
+            // Clear
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw circular rings
+            ctx.strokeStyle = "rgba(28, 35, 51, 0.6)";
+            ctx.lineWidth = 1;
+            
+            const numRings = 5;
+            for (let i = 1; i <= numRings; i++) {
+                const ringR = (r / numRings) * i;
+                ctx.beginPath();
+                ctx.arc(cx, cy, ringR, 0, 2 * Math.PI);
+                ctx.stroke();
+
+                // Ring labels (meters)
+                ctx.fillStyle = "rgba(107, 122, 153, 0.6)";
+                ctx.font = "9px Share Tech Mono";
+                const labelDist = (currentMaxRange / numRings) * i;
+                ctx.fillText(`${labelDist.toFixed(1)}m`, cx + 5, cy - ringR + 12);
+            }
+
+            // Draw radial lines (every 30 degrees)
+            ctx.strokeStyle = "rgba(28, 35, 51, 0.4)";
+            for (let deg = 0; deg < 360; deg += 30) {
+                const rad = (deg * Math.PI) / 180;
+                ctx.beginPath();
+                ctx.moveTo(cx, cy);
+                ctx.lineTo(cx + r * Math.sin(rad), cy - r * Math.cos(rad));
+                ctx.stroke();
+            }
+
+            // Draw Crosshairs
+            ctx.strokeStyle = "rgba(0, 214, 255, 0.15)";
+            ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            ctx.moveTo(cx - r, cy); ctx.lineTo(cx + r, cy);
+            ctx.moveTo(cx, cy - r); ctx.lineTo(cx, cy + r);
+            ctx.stroke();
+
+            // Draw Robot Marker in center
+            ctx.fillStyle = "var(--cyan)";
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - 8);     // Front
+            ctx.lineTo(cx - 6, cy + 6);  // Rear-Left
+            ctx.lineTo(cx + 6, cy + 6);  // Rear-Right
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // Radar Sweep animation (runs continuously)
+        function animateSweep() {
+            if (Date.now() - lastReceived < 2000) {
+                radarSweepAngle = (radarSweepAngle + 0.03) % (2 * Math.PI);
+                
+                if (renderStyle === "sweep") {
+                    drawGrid();
+                    renderScanData();
+                    
+                    // Draw sweep line overlay
+                    const cx = canvas.width / 2;
+                    const cy = canvas.height / 2;
+                    const r = canvas.width / 2;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy);
+                    ctx.lineTo(cx + r * Math.sin(radarSweepAngle), cy - r * Math.cos(radarSweepAngle));
+                    ctx.strokeStyle = "rgba(0, 212, 255, 0.3)";
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                    
+                    // Gradient trail
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy);
+                    ctx.arc(cx, cy, r, -Math.PI/2 + radarSweepAngle - 0.2, -Math.PI/2 + radarSweepAngle);
+                    ctx.closePath();
+                    const grad = ctx.createRadialGradient(cx, cy, 10, cx, cy, r);
+                    grad.addColorStop(0, "rgba(0, 212, 255, 0.15)");
+                    grad.addColorStop(1, "rgba(0, 212, 255, 0)");
+                    ctx.fillStyle = grad;
+                    ctx.fill();
+                }
+            }
+            requestAnimationFrame(animateSweep);
+        }
+        requestAnimationFrame(animateSweep);
+
+        // Custom check for SSE path /events
+        const evtSource = new EventSource('/events');
+        
+        evtSource.onmessage = function(e) {
+            try {
+                const payload = JSON.parse(e.data);
+                const telemetry = payload.telemetry;
+                
+                if (telemetry && telemetry.Sensors && telemetry.Sensors.scan && telemetry.Sensors.scan.available) {
+                    activeTelemetry = telemetry.Sensors.scan;
+                    lastReceived = Date.now();
+                    scanFrames++;
+                    
+                    // Update readouts
+                    const scan = activeTelemetry;
+                    elFrameId.textContent = scan.frame_id || "laser_frame";
+                    elPoints.textContent = scan.num_points || "--";
+                    
+                    const minAngDeg = (scan.angle_min_rad * 180 / Math.PI).toFixed(0);
+                    const maxAngDeg = (scan.angle_max_rad * 180 / Math.PI).toFixed(0);
+                    elAngleRange.textContent = `${minAngDeg}° TO ${maxAngDeg}°`;
+                    
+                    elDistanceLimits.textContent = `${scan.range_min_m.toFixed(1)}m - ${scan.range_max_m.toFixed(1)}m`;
+                    
+                    const minVal = scan.min_range_m !== undefined ? scan.min_range_m : 0.0;
+                    const maxVal = scan.max_range_m !== undefined ? scan.max_range_m : 0.0;
+                    elMinDist.textContent = `${minVal.toFixed(3)} m`;
+                    elMaxDist.textContent = `${maxVal.toFixed(3)} m`;
+                    
+                    const fwdVal = scan.forward_range_m !== undefined ? scan.forward_range_m : 12.0;
+                    elFwdClearance.textContent = `${fwdVal.toFixed(3)} m`;
+                    
+                    // Forward clearance warning states
+                    if (fwdVal < 1.5) {
+                        elFwdClearance.className = "dv err";
+                        obstacleAlert.classList.add("active");
+                    } else if (fwdVal < 3.0) {
+                        elFwdClearance.className = "dv warn";
+                        obstacleAlert.classList.remove("active");
+                    } else {
+                        elFwdClearance.className = "dv ok";
+                        obstacleAlert.classList.remove("active");
+                    }
+                    
+                    // Draw if not sweep style (sweep does it via animateSweep loop)
+                    if (renderStyle !== "sweep") {
+                        drawGrid();
+                        renderScanData();
+                    }
+                }
+            } catch (err) {
+                console.error("Lidar parsing error:", err);
+            }
+        };
+
+        // Render Lidar scan points/lines
+        function renderScanData() {
+            if (!activeTelemetry || !activeTelemetry.ranges) return;
+            
+            const scan = activeTelemetry;
+            const ranges = scan.ranges;
+            const angleMin = scan.angle_min_rad;
+            const angleMax = scan.angle_max_rad;
+            const rangeMin = scan.range_min_m;
+            const rangeMax = scan.range_max_m;
+            
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const r_canvas = canvas.width / 2;
+            
+            // scale: pixels per meter
+            const scale = r_canvas / currentMaxRange;
+            
+            if (renderStyle === "lines") {
+                ctx.beginPath();
+                ctx.strokeStyle = "rgba(0, 212, 255, 0.8)";
+                ctx.lineWidth = 1.5;
+                
+                let firstPoint = true;
+                
+                for (let i = 0; i < ranges.length; i++) {
+                    const r = ranges[i];
+                    if (r <= rangeMin || r >= rangeMax || r === 0.0) continue;
+                    
+                    const angle = angleMin + i * ((angleMax - angleMin) / (ranges.length - 1));
+                    const x_robot = r * Math.cos(angle);
+                    const y_robot = r * Math.sin(angle);
+                    
+                    // Coordinates: x is forward (up on canvas), y is left (left on canvas)
+                    const x_canvas = cx - y_robot * scale;
+                    const y_canvas = cy - x_robot * scale;
+                    
+                    if (firstPoint) {
+                        ctx.moveTo(x_canvas, y_canvas);
+                        firstPoint = false;
+                    } else {
+                        ctx.lineTo(x_canvas, y_canvas);
+                    }
+                }
+                ctx.stroke();
+            } else {
+                // dots rendering (default & sweep styles)
+                for (let i = 0; i < ranges.length; i++) {
+                    const r = ranges[i];
+                    if (r <= rangeMin || r >= rangeMax || r === 0.0) continue;
+                    
+                    const angle = angleMin + i * ((angleMax - angleMin) / (ranges.length - 1));
+                    const x_robot = r * Math.cos(angle);
+                    const y_robot = r * Math.sin(angle);
+                    
+                    const x_canvas = cx - y_robot * scale;
+                    const y_canvas = cy - x_robot * scale;
+                    
+                    // Highlight if sweep line passes close
+                    let alpha = 0.8;
+                    if (renderStyle === "sweep") {
+                        // Math.atan2 in canvas coordinate system
+                        const dx = x_canvas - cx;
+                        const dy = cy - y_canvas; // invert Y for standard polar angles
+                        let pAngle = Math.atan2(dx, dy); // angle relative to up (y-axis)
+                        if (pAngle < 0) pAngle += 2 * Math.PI;
+                        
+                        let angleDiff = Math.abs(radarSweepAngle - pAngle);
+                        if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff;
+                        
+                        if (angleDiff < 0.3) {
+                            alpha = 1.0 - (angleDiff / 0.3) * 0.7; // bright near sweep line
+                        } else {
+                            alpha = 0.15; // faded trail
+                        }
+                    }
+                    
+                    ctx.beginPath();
+                    ctx.arc(x_canvas, y_canvas, 1.8, 0, 2 * Math.PI);
+                    ctx.fillStyle = `rgba(0, 212, 255, ${alpha})`;
+                    ctx.fill();
+                }
+            }
+        }
+
+        // Connection watchdog
+        setInterval(() => {
+            if (Date.now() - lastReceived > 2000) {
+                // Signal Lost
+                statusBadge.classList.remove("live");
+                statusDot.className = "chip-dot d-offline";
+                statusText.textContent = "SIGNAL LOST";
+                noSignalOverlay.style.display = "flex";
+                obstacleAlert.classList.remove("active");
+            } else {
+                // Signal Live
+                statusBadge.classList.add("live");
+                statusDot.className = "chip-dot d-online";
+                statusText.textContent = "LIVE";
+                noSignalOverlay.style.display = "none";
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

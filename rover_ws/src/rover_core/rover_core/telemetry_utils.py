@@ -245,3 +245,276 @@ def random_navigation_defaults() -> dict[str, Any]:
         "wp_error_m": 0.0,
         "wp_status": "idle",
     }
+
+
+# ---------------------------------------------------------------------------
+# Standard ROS 2 message-type imports (optional — file stays importable without ROS)
+# ---------------------------------------------------------------------------
+try:
+    from geometry_msgs.msg import Twist                   # /cmd_vel
+    from sensor_msgs.msg import (
+        LaserScan,                                        # /scan
+        Imu,                                              # /imu
+        BatteryState,                                     # /battery_state
+        NavSatFix,                                        # /fix (GPS)
+    )
+    from nav_msgs.msg import Odometry                     # /odom
+    from tf2_msgs.msg import TFMessage                    # /tf, /tf_static
+    from rcl_interfaces.msg import Log                    # /rosout
+    _STD_MSGS_AVAILABLE = True
+except ImportError:
+    Twist = None          # type: ignore[misc,assignment]
+    LaserScan = None      # type: ignore[misc,assignment]
+    Imu = None            # type: ignore[misc,assignment]
+    BatteryState = None   # type: ignore[misc,assignment]
+    NavSatFix = None      # type: ignore[misc,assignment]
+    Odometry = None       # type: ignore[misc,assignment]
+    TFMessage = None      # type: ignore[misc,assignment]
+    Log = None            # type: ignore[misc,assignment]
+    _STD_MSGS_AVAILABLE = False
+
+
+# ---------------------------------------------------------------------------
+# Standard-topic payload builders — convert native ROS messages → GCS JSON dicts
+# ---------------------------------------------------------------------------
+
+def make_imu_payload(msg: Any) -> "dict[str, Any]":
+    """Convert a sensor_msgs/Imu message to a flat GCS-friendly dict.
+
+    Angular velocity in rad/s; linear acceleration in m/s² (includes gravity per REP-103).
+    Orientation as (x, y, z, w) quaternion.  covariance[0] == -1.0 signals «not provided».
+    """
+    if msg is None:
+        return {"available": False}
+    return {
+        "available": True,
+        "frame_id": msg.header.frame_id,
+        "orientation_x": round(msg.orientation.x, 6),
+        "orientation_y": round(msg.orientation.y, 6),
+        "orientation_z": round(msg.orientation.z, 6),
+        "orientation_w": round(msg.orientation.w, 6),
+        "orientation_cov_ok": msg.orientation_covariance[0] >= 0.0,
+        "angular_velocity_x": round(msg.angular_velocity.x, 6),    # rad/s
+        "angular_velocity_y": round(msg.angular_velocity.y, 6),
+        "angular_velocity_z": round(msg.angular_velocity.z, 6),
+        "angular_velocity_cov_ok": msg.angular_velocity_covariance[0] >= 0.0,
+        "linear_acceleration_x": round(msg.linear_acceleration.x, 4),  # m/s² incl. gravity
+        "linear_acceleration_y": round(msg.linear_acceleration.y, 4),
+        "linear_acceleration_z": round(msg.linear_acceleration.z, 4),
+        "linear_acceleration_cov_ok": msg.linear_acceleration_covariance[0] >= 0.0,
+        # Direct fallback keys to match GCS direct callbacks
+        "accel_x": round(msg.linear_acceleration.x, 4),
+        "accel_y": round(msg.linear_acceleration.y, 4),
+        "accel_z": round(msg.linear_acceleration.z, 4),
+        "gyro_x": round(msg.angular_velocity.x, 6),
+        "gyro_y": round(msg.angular_velocity.y, 6),
+        "gyro_z": round(msg.angular_velocity.z, 6),
+    }
+
+
+def make_scan_payload(msg: Any) -> "dict[str, Any]":
+    """Convert a sensor_msgs/LaserScan to a GCS-friendly summary dict.
+
+    Full ranges array is summarised (forward distance, valid count, min/max)
+    to keep the SSE payload small.  Invalid rays use Infinity / NaN — never 0.
+    """
+    if msg is None:
+        return {"available": False}
+    ranges = [r for r in msg.ranges if msg.range_min <= r <= msg.range_max]
+    fwd_idx = (
+        int((-msg.angle_min) / msg.angle_increment)
+        if msg.angle_increment > 0 else 0
+    )
+    fwd_idx = max(0, min(fwd_idx, len(msg.ranges) - 1))
+    fwd_range = msg.ranges[fwd_idx] if msg.ranges else float("inf")
+
+    raw_ranges = msg.ranges
+    n = len(raw_ranges)
+    max_points = 180
+    if n > max_points:
+        step = max(1, n // max_points)
+        downsampled = [raw_ranges[i] for i in range(0, n, step)][:max_points]
+    else:
+        downsampled = raw_ranges
+
+    formatted_ranges = [
+        round(r, 2) if (msg.range_min <= r <= msg.range_max and math.isfinite(r)) else None
+        for r in downsampled
+    ]
+
+    return {
+        "available": True,
+        "frame_id": msg.header.frame_id,
+        "angle_min_rad": round(msg.angle_min, 4),
+        "angle_max_rad": round(msg.angle_max, 4),
+        "range_min_m": round(msg.range_min, 3),
+        "range_max_m": round(msg.range_max, 3),
+        "num_points": len(msg.ranges),
+        "num_valid": len(ranges),
+        "forward_range_m": round(fwd_range, 3) if fwd_range != float("inf") else None,
+        "min_range_m": round(min(ranges), 3) if ranges else None,
+        "max_range_m": round(max(ranges), 3) if ranges else None,
+        "ranges": formatted_ranges,
+    }
+
+
+def make_gps_payload(msg: Any) -> "dict[str, Any]":
+    """Convert a sensor_msgs/NavSatFix to a GCS-friendly dict.
+
+    Latitude/longitude in decimal degrees; altitude in meters (WGS-84 ellipsoid).
+    fix_status: -1=no fix, 0=fix, 1=SBAS, 2=GBAS.
+    """
+    if msg is None:
+        return {"available": False}
+    status = int(msg.status.status) if hasattr(msg, "status") else -1
+    cov = list(msg.position_covariance) if len(msg.position_covariance) > 0 else []
+    return {
+        "available": True,
+        "frame_id": msg.header.frame_id,
+        "latitude": round(msg.latitude, 8),     # decimal degrees
+        "longitude": round(msg.longitude, 8),
+        "altitude_m": round(msg.altitude, 3),   # meters above WGS-84 ellipsoid
+        "altitude": round(msg.altitude, 3),      # Direct fallback key
+        "fix_status": status,                   # -1=no fix, 0=fix, 1=sbas, 2=gbas
+        "has_fix": status >= 0,
+        "position_covariance_type": int(msg.position_covariance_type),
+        # Diagonal: lat_var, lon_var, alt_var (row-major 3×3 at indices 0,4,8)
+        "position_cov_lat": round(cov[0], 6) if len(cov) > 0 else None,
+        "position_cov_lon": round(cov[4], 6) if len(cov) > 4 else None,
+        "position_cov_alt": round(cov[8], 6) if len(cov) > 8 else None,
+    }
+
+
+def make_odom_payload(msg: Any) -> "dict[str, Any]":
+    """Convert a nav_msgs/Odometry to a GCS-friendly dict.
+
+    pose.pose is robot pose in header.frame_id (usually 'odom').
+    twist.twist is body-frame velocity (linear.x = forward speed m/s).
+    """
+    if msg is None:
+        return {"available": False}
+    p = msg.pose.pose
+    t = msg.twist.twist
+    import math
+    vx = t.linear.x
+    vy = t.linear.y
+    speed_kmh = math.sqrt(vx*vx + vy*vy) * 3.6
+    return {
+        "available": True,
+        "frame_id": msg.header.frame_id,           # fixed frame, usually 'odom'
+        "child_frame_id": msg.child_frame_id,       # body frame, usually 'base_link'
+        "pos_x": round(p.position.x, 4),           # meters
+        "pos_y": round(p.position.y, 4),
+        "pos_z": round(p.position.z, 4),
+        "orient_x": round(p.orientation.x, 6),
+        "orient_y": round(p.orientation.y, 6),
+        "orient_z": round(p.orientation.z, 6),
+        "orient_w": round(p.orientation.w, 6),
+        "linear_x": round(t.linear.x, 4),          # m/s forward (body frame)
+        "linear_y": round(t.linear.y, 4),
+        "linear_z": round(t.linear.z, 4),
+        "angular_z": round(t.angular.z, 6),         # rad/s yaw-rate (body frame)
+        # Direct fallback keys to match GCS direct callbacks
+        "ori_x": round(p.orientation.x, 6),
+        "ori_y": round(p.orientation.y, 6),
+        "ori_z": round(p.orientation.z, 6),
+        "ori_w": round(p.orientation.w, 6),
+        "speed_kmh": round(speed_kmh, 2),
+        "twist_linear_x": round(vx, 4),
+        "twist_angular_z": round(t.angular.z, 6),
+    }
+
+
+def make_battery_payload(msg: Any) -> "dict[str, Any]":
+    """Convert a sensor_msgs/BatteryState to a GCS-friendly dict.
+
+    voltage in Volts; current in Amperes (positive = charging); percentage 0–100%.
+    NaN fields are reported as None.
+    """
+    if msg is None:
+        return {"available": False}
+
+    def _safe(v: float) -> "float | None":
+        return round(v, 3) if v == v else None  # NaN check
+
+    pct = _safe(msg.percentage)
+    return {
+        "available": True,
+        "voltage_v": _safe(msg.voltage),
+        "voltage": _safe(msg.voltage),           # Direct fallback key
+        "current_a": _safe(msg.current),
+        "charge_ah": _safe(msg.charge),
+        "capacity_ah": _safe(msg.capacity),
+        "percentage": round(pct * 100.0, 1) if pct is not None else None,  # → 0–100%
+        "power_supply_status": int(msg.power_supply_status),
+        # 0=UNKNOWN,1=CHARGING,2=DISCHARGING,3=NOT_CHARGING,4=FULL
+        "power_supply_health": int(msg.power_supply_health),
+        "present": bool(msg.present),
+    }
+
+
+def make_tf_summary_payload(msg: Any) -> "dict[str, Any]":
+    """Return a compact summary of a TFMessage for the GCS dashboard."""
+    if msg is None:
+        return {"available": False, "transforms": []}
+    transforms = [
+        {"parent": tf.header.frame_id, "child": tf.child_frame_id}
+        for tf in msg.transforms
+    ]
+    return {"available": True, "count": len(transforms), "transforms": transforms}
+
+
+def make_rosout_payload(msg: Any) -> "dict[str, Any]":
+    """Convert the latest rcl_interfaces/Log entry to a GCS-friendly dict."""
+    if msg is None:
+        return {"available": False, "msg": "", "level": 0, "name": ""}
+    return {
+        "available": True,
+        "level": int(msg.level),   # 10=DEBUG,20=INFO,30=WARN,40=ERROR,50=FATAL
+        "name": msg.name,
+        "msg": msg.msg,
+        "file": msg.file,
+        "function": msg.function,
+        "line": int(msg.line),
+    }
+
+
+def get_cmd_vel_topic_name() -> str:
+    """Resolve the cmd_vel topic name from topic_config.json, falling back to '/cmd_vel'."""
+    import os
+    import json
+
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.normpath(os.path.join(base_dir, "../../../../web_gcs/topic_config.json"))
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                if "cmd_vel_echo" in config and "path" in config["cmd_vel_echo"]:
+                    path = config["cmd_vel_echo"]["path"]
+                    if path:
+                        return path
+    except Exception:
+        pass
+    return "/cmd_vel"
+
+
+def get_topic_path(topic_key: str, default_path: str) -> str:
+    """Resolve the topic path from topic_config.json, falling back to default_path."""
+    import os
+    import json
+
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.normpath(os.path.join(base_dir, "../../../../web_gcs/topic_config.json"))
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                config = json.load(f)
+                if topic_key in config and "path" in config[topic_key]:
+                    path = config[topic_key]["path"]
+                    if path:
+                        return path
+    except Exception:
+        pass
+    return default_path
+

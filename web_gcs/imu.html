@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GCS — IMU Telemetry View</title>
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <style>
+        body, html {
+            margin: 0; padding: 0;
+            height: 100vh;
+            width: 100vw;
+            background-color: var(--bg-dark, #010306);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .cam-topbar {
+            height: 48px;
+            background: rgba(13, 20, 36, 0.9);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 16px;
+        }
+        .brand {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 2px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .brand:hover {
+            color: var(--cyan);
+        }
+        .content-container {
+            flex-grow: 1;
+            padding: 40px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            overflow-y: auto;
+        }
+        .data-panel {
+            width: 100%;
+            max-width: 800px;
+            background: var(--panel-bg);
+            border: 1px solid var(--border-dim);
+            border-top: 3px solid var(--purple);
+            padding: 20px;
+        }
+        .data-panel h2 {
+            font-family: 'Outfit', sans-serif;
+            color: #fff;
+            margin-top: 0;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .data-section {
+            margin-bottom: 30px;
+        }
+        .data-section h3 {
+            font-family: 'Rajdhani', sans-serif;
+            color: var(--purple);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 5px;
+            margin-bottom: 15px;
+            letter-spacing: 1px;
+        }
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        .data-card {
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+        .data-card .lbl {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 12px;
+            color: #8892b0;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+        .data-card .val {
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 18px;
+            color: #fff;
+        }
+        .status-badge {
+            padding: 4px 10px;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 14px;
+            border: 1px solid var(--red);
+            color: var(--red);
+            border-radius: 4px;
+        }
+        .status-badge.live {
+            border-color: var(--green);
+            color: var(--green);
+        }
+    </style>
+</head>
+<body>
+    <div class="cam-topbar">
+        <a href="index.html" class="brand">
+            <i class="fa-solid fa-arrow-left"></i>
+            <span>RETURN TO GCS DASHBOARD</span>
+        </a>
+        <div class="brand" style="color: var(--purple);">
+            <i class="fa-solid fa-compass"></i> IMU TELEMETRY
+        </div>
+        <div class="status-badge" id="status-badge">AWAITING SIGNAL</div>
+    </div>
+    
+    <div class="content-container">
+        <div class="data-panel">
+            <h2><i class="fa-solid fa-microchip"></i> INERTIAL MEASUREMENT UNIT (IMU)</h2>
+            
+            <div class="data-section">
+                <h3>ORIENTATION (QUATERNION)</h3>
+                <div class="data-grid">
+                    <div class="data-card">
+                        <span class="lbl">X</span>
+                        <span class="val" id="ori_x">0.00000000</span>
+                    </div>
+                    <div class="data-card">
+                        <span class="lbl">Y</span>
+                        <span class="val" id="ori_y">0.00000000</span>
+                    </div>
+                    <div class="data-card">
+                        <span class="lbl">Z</span>
+                        <span class="val" id="ori_z">0.00000000</span>
+                    </div>
+                    <div class="data-card">
+                        <span class="lbl">W</span>
+                        <span class="val" id="ori_w">0.00000000</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="data-section">
+                <h3>ANGULAR VELOCITY (RAD/S)</h3>
+                <div class="data-grid">
+                    <div class="data-card">
+                        <span class="lbl">X</span>
+                        <span class="val" id="ang_x">0.00000000</span>
+                    </div>
+                    <div class="data-card">
+                        <span class="lbl">Y</span>
+                        <span class="val" id="ang_y">0.00000000</span>
+                    </div>
+                    <div class="data-card">
+                        <span class="lbl">Z</span>
+                        <span class="val" id="ang_z">0.00000000</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="data-section">
+                <h3>LINEAR ACCELERATION (M/S²)</h3>
+                <div class="data-grid">
+                    <div class="data-card">
+                        <span class="lbl">X</span>
+                        <span class="val" id="lin_x">0.00000000</span>
+                    </div>
+                    <div class="data-card">
+                        <span class="lbl">Y</span>
+                        <span class="val" id="lin_y">0.00000000</span>
+                    </div>
+                    <div class="data-card">
+                        <span class="lbl">Z</span>
+                        <span class="val" id="lin_z">0.00000000</span>
+                    </div>
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <script>
+        const statusBadge = document.getElementById("status-badge");
+        const els = {
+            ori_x: document.getElementById("ori_x"),
+            ori_y: document.getElementById("ori_y"),
+            ori_z: document.getElementById("ori_z"),
+            ori_w: document.getElementById("ori_w"),
+            ang_x: document.getElementById("ang_x"),
+            ang_y: document.getElementById("ang_y"),
+            ang_z: document.getElementById("ang_z"),
+            lin_x: document.getElementById("lin_x"),
+            lin_y: document.getElementById("lin_y"),
+            lin_z: document.getElementById("lin_z")
+        };
+
+        const evtSource = new EventSource('/events');
+        let lastReceived = 0;
+
+        function updateVal(el, val) {
+            if (val === undefined || val === null) {
+                el.textContent = "NO DATA";
+                el.style.color = "#8892b0";
+            } else {
+                el.textContent = Number(val).toFixed(8);
+                el.style.color = "#fff";
+            }
+        }
+
+        evtSource.onmessage = function(e) {
+            try {
+                const payload = JSON.parse(e.data);
+                const telemetry = payload.telemetry;
+                if (telemetry && telemetry.Sensors && telemetry.Sensors.imu) {
+                    const imu = telemetry.Sensors.imu;
+                    updateVal(els.ori_x, imu.orientation_x);
+                    updateVal(els.ori_y, imu.orientation_y);
+                    updateVal(els.ori_z, imu.orientation_z);
+                    updateVal(els.ori_w, imu.orientation_w);
+                    
+                    updateVal(els.ang_x, imu.angular_velocity_x);
+                    updateVal(els.ang_y, imu.angular_velocity_y);
+                    updateVal(els.ang_z, imu.angular_velocity_z);
+                    
+                    updateVal(els.lin_x, imu.linear_acceleration_x);
+                    updateVal(els.lin_y, imu.linear_acceleration_y);
+                    updateVal(els.lin_z, imu.linear_acceleration_z);
+
+                    lastReceived = Date.now();
+                }
+            } catch (err) {
+                console.error("Stream error:", err);
+            }
+        };
+
+        // Check freshness
+        setInterval(() => {
+            if (Date.now() - lastReceived > 2000) {
+                statusBadge.textContent = "SIGNAL LOST";
+                statusBadge.classList.remove("live");
+            } else {
+                statusBadge.textContent = "LIVE";
+                statusBadge.classList.add("live");
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

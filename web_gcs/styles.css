@@ -1451,3 +1451,28 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #232D42;
 }
+
+#lidar-scan-canvas {
+    background: #020408;
+    border-radius: 4px;
+    border: 1px solid var(--border-dim);
+    display: block;
+    box-shadow: 0 0 15px rgba(0, 212, 255, 0.03);
+}
+
+/* Metric Freshness States */
+.metric-stale {
+    opacity: 0.6 !important;
+    color: var(--text-secondary) !important;
+    transition: opacity 0.3s ease, color 0.3s ease;
+}
+.metric-no-signal {
+    opacity: 0.35 !important;
+    color: var(--text-dim) !important;
+    transition: opacity 0.3s ease, color 0.3s ease;
+}
+.metric-live {
+    opacity: 1.0 !important;
+    transition: opacity 0.3s ease, color 0.3s ease;
+}
+
