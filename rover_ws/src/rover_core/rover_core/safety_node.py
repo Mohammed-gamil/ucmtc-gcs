@@ -100,6 +100,7 @@ class SafetyNode(Node):
             500,
             _int_descriptor("DEADLINE QoS for /rover/telemetry/safety (ms)", 50, 2000),
         )
+        self.declare_parameter("use_simulation", True)
 
         publish_rate_hz: float = (
             self.get_parameter("publish_rate_hz").get_parameter_value().double_value
@@ -107,7 +108,21 @@ class SafetyNode(Node):
         self._collision_threshold_m: float = (
             self.get_parameter("collision_threshold_m").get_parameter_value().double_value
         )
+        self.use_simulation = self.get_parameter("use_simulation").get_parameter_value().bool_value
+        self._estop_pin = self.get_parameter("estop_gpio_pin").get_parameter_value().integer_value
         period_sec = 1.0 / max(publish_rate_hz, 1.0)
+
+        # ── GPIO Setup ───────────────────────────────────────────────────────
+        self._gpio_available = False
+        if not self.use_simulation:
+            try:
+                import Jetson.GPIO as GPIO
+                GPIO.setmode(GPIO.BCM)
+                GPIO.setup(self._estop_pin, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+                self._gpio_available = True
+                self.get_logger().info(f"GPIO setup successful on BCM pin {self._estop_pin} (Jetson.GPIO)")
+            except Exception as e:
+                self.get_logger().warning(f"Could not initialize Jetson.GPIO: {e}. Falling back to simulation.")
 
         # ── Pub / Sub ────────────────────────────────────────────────────────
         self._init_topics()
@@ -199,7 +214,21 @@ class SafetyNode(Node):
             except (ValueError, TypeError):
                 speed_val = 0.0
 
-        if not self._estop_triggered and not self._collision_detected:
+        if not self.use_simulation and self._gpio_available:
+            try:
+                import Jetson.GPIO as GPIO
+                # Pin is active-low: closed (pressed) to GND = LOW
+                button_pressed = (GPIO.input(self._estop_pin) == GPIO.LOW)
+                if button_pressed:
+                    self._estop_triggered = True
+            except Exception as e:
+                self.get_logger().error(f"Error reading physical GPIO E-stop: {e}")
+
+        if not self.use_simulation:
+            # Under physical operation, only trigger collision events if we want,
+            # but disable random simulator faults.
+            pass
+        elif not self._estop_triggered and not self._collision_detected:
             if speed_val > 6.0:
                 if random.random() < 0.01:
                     self._collision_detected = True
@@ -322,6 +351,12 @@ class SafetyNode(Node):
 
     def destroy_node(self) -> None:
         self._send_zero_command()
+        if hasattr(self, "_gpio_available") and self._gpio_available:
+            try:
+                import Jetson.GPIO as GPIO
+                GPIO.cleanup()
+            except Exception:
+                pass
         super().destroy_node()
 
     # ── Backwards-compat aliases used in tests ────────────────────────────────

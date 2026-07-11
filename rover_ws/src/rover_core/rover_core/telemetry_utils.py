@@ -223,6 +223,7 @@ def make_ros_payload(
     node_img_recog: bool,
     node_motor_ctrl: bool,
     rosout_last: str,
+    esp32_connected: bool = False,
 ) -> dict[str, Any]:
     return {
         "node_lane_det": node_lane_det,
@@ -230,6 +231,7 @@ def make_ros_payload(
         "node_wp_nav": node_wp_nav,
         "node_img_recog": node_img_recog,
         "node_motor_ctrl": node_motor_ctrl,
+        "esp32_connected": esp32_connected,
         "rosout_last": rosout_last,
     }
 

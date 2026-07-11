@@ -122,6 +122,7 @@ _ROS_SCHEMA = {
     "node_wp_nav": "boolean",
     "node_img_recog": "boolean",
     "node_motor_ctrl": "boolean",
+    "esp32_connected": "boolean",
     "rosout_last": "string",
 }
 
@@ -219,6 +220,7 @@ class RosData:
     node_wp_nav: bool
     node_img_recog: bool
     node_motor_ctrl: bool
+    esp32_connected: bool
     rosout_last: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -254,7 +256,7 @@ class TelemetryPayload:
             vision=VisionData(0.0, False, False, 0, "idle", False, 0, 0.0),
             jetson=JetsonData(0.0, 0.0, 0.0, 0.0, 100.0, 12.0, 0),
             communication=CommunicationData(0, 0, 0.0, 0.0, 0, 0),
-            ros=RosData(False, False, False, False, False, ""),
+            ros=RosData(False, False, False, False, False, False, ""),
         )
 
     @classmethod

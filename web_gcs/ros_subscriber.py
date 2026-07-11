@@ -30,11 +30,21 @@ class RosBridge(threading.Thread):
             callback = self._make_callback(name, transport)
             
             try:
+                if transport == "binary_stream":
+                    from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
+                    qos = QoSProfile(
+                        reliability=ReliabilityPolicy.BEST_EFFORT,
+                        history=HistoryPolicy.KEEP_LAST,
+                        depth=1
+                    )
+                else:
+                    qos = qos_profile_sensor_data
+                    
                 sub = self.node.create_subscription(
                     msg_class,
                     name,
                     callback,
-                    qos_profile_sensor_data
+                    qos
                 )
                 self.subscriptions[name] = sub
             except Exception as e:
@@ -53,6 +63,10 @@ class RosBridge(threading.Thread):
                 registry[name]["latest_raw"] = msg
                 registry[name]["last_update"] = now
                 registry[name]["connection_state"] = "connected"
+                try:
+                    registry[name]["arrival_time"] = self.node.get_clock().now()
+                except Exception:
+                    registry[name]["arrival_time"] = None
             else:
                 # json or throttled_json
                 if transport == "throttled_json":

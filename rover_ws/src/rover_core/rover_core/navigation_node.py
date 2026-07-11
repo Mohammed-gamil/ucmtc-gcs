@@ -68,7 +68,6 @@ class NavigationNode(Node):
         self._owns_ros_context = ensure_ros_initialized()
         super().__init__("navigation_node")
 
-        # ── Parameters ──────────────────────────────────────────────────────
         self.declare_parameter(
             "publish_rate_hz",
             10.0,
@@ -81,11 +80,32 @@ class NavigationNode(Node):
             1.5,
             _float_descriptor("Seconds after which section data is considered stale", 0.1, 10.0),
         )
+        self.declare_parameter("use_simulation", True)
 
         publish_rate_hz: float = (
             self.get_parameter("publish_rate_hz").get_parameter_value().double_value
         )
+        self.use_simulation = self.get_parameter("use_simulation").get_parameter_value().bool_value
+        self._gps_port = self.get_parameter("gps_serial_port").get_parameter_value().string_value
+        self._imu_port = self.get_parameter("imu_serial_port").get_parameter_value().string_value
         period_sec = 1.0 / max(publish_rate_hz, 0.1)
+
+        # ── Serial Connections ───────────────────────────────────────────────
+        self._gps_conn = None
+        self._imu_conn = None
+        if not self.use_simulation:
+            try:
+                import serial
+                self._gps_conn = serial.Serial(self._gps_port, 9600, timeout=0.1)
+                self.get_logger().info(f"Opened GPS serial port: {self._gps_port}")
+            except Exception as e:
+                self.get_logger().error(f"Failed to open GPS serial port {self._gps_port}: {e}")
+            try:
+                import serial
+                self._imu_conn = serial.Serial(self._imu_port, 115200, timeout=0.1)
+                self.get_logger().info(f"Opened IMU serial port: {self._imu_port}")
+            except Exception as e:
+                self.get_logger().error(f"Failed to open IMU serial port {self._imu_port}: {e}")
 
         # ── Pub / Sub ────────────────────────────────────────────────────────
         self._init_topics()
@@ -262,34 +282,77 @@ class NavigationNode(Node):
             self._target_speed_kmh = 0.0
             self._wp_status = "blocked"
 
+    def _read_sensors(self) -> None:
+        if self.use_simulation:
+            return
+
+        # Read GPS (NMEA format)
+        if self._gps_conn and self._gps_conn.is_open:
+            try:
+                import pynmea2
+                while self._gps_conn.in_waiting:
+                    line = self._gps_conn.readline().decode('ascii', errors='ignore').strip()
+                    if line.startswith('$GPRMC') or line.startswith('$GPGGA'):
+                        try:
+                            msg = pynmea2.parse(line)
+                            if hasattr(msg, 'latitude') and msg.latitude:
+                                self._pos_lat = float(msg.latitude)
+                            if hasattr(msg, 'longitude') and msg.longitude:
+                                self._pos_lon = float(msg.longitude)
+                            if hasattr(msg, 'spd_over_grnd') and msg.spd_over_grnd is not None:
+                                self._speed_kmh = float(msg.spd_over_grnd) * 1.852  # knots to km/h
+                        except Exception:
+                            pass
+            except Exception as e:
+                self.get_logger().error(f"Error reading GPS serial: {e}")
+
+        # Read IMU (assuming ASCII orientation data: "heading_deg,pitch,roll")
+        if self._imu_conn and self._imu_conn.is_open:
+            try:
+                while self._imu_conn.in_waiting:
+                    line = self._imu_conn.readline().decode('utf-8', errors='ignore').strip()
+                    parts = line.split(',')
+                    if parts and len(parts) >= 1:
+                        try:
+                            self._heading_deg = float(parts[0]) % 360.0
+                        except ValueError:
+                            pass
+            except Exception as e:
+                self.get_logger().error(f"Error reading IMU serial: {e}")
+
     # ── Publish ──────────────────────────────────────────────────────────────
 
     def _publish_nav_data(self) -> dict:
         if self._safety_blocked:
             self._target_speed_kmh = 0.0
 
-        self._speed_kmh += (self._target_speed_kmh - self._speed_kmh) * 0.25
-        self._heading_deg += (
-            (self._target_heading_deg - self._heading_deg + 540.0) % 360.0 - 180.0
-        ) * 0.15
-        self._heading_deg %= 360.0
+        if self.use_simulation:
+            self._speed_kmh += (self._target_speed_kmh - self._speed_kmh) * 0.25
+            self._heading_deg += (
+                (self._target_heading_deg - self._heading_deg + 540.0) % 360.0 - 180.0
+            ) * 0.15
+            self._heading_deg %= 360.0
 
-        if self._target_speed_kmh <= 0.0 and not self._safety_blocked:
-            self._speed_kmh = max(0.0, self._speed_kmh - 0.1)
+            if self._target_speed_kmh <= 0.0 and not self._safety_blocked:
+                self._speed_kmh = max(0.0, self._speed_kmh - 0.1)
+
+            # dt is nominally 1/publish_rate_hz; use a fixed 100ms to avoid drift.
+            dt = 0.1
+            distance_increment = (self._speed_kmh / 3.6) * dt
+            heading_rad = math.radians(self._heading_deg)
+            self._pos_lat += (distance_increment / 111000.0) * math.cos(heading_rad)
+            self._pos_lon += (distance_increment / 111000.0) * math.sin(heading_rad)
+            self._dist_traveled_m += distance_increment
+        else:
+            self._read_sensors()
+            if self._safety_blocked:
+                self._speed_kmh = 0.0
 
         # Use node clock for elapsed-time-based calculations so sim time works.
         now_stamp = self.get_clock().now()
         elapsed_since_start = (
             (now_stamp - self._start_stamp).nanoseconds / 1_000_000_000
         )
-
-        # dt is nominally 1/publish_rate_hz; use a fixed 100ms to avoid drift.
-        dt = 0.1
-        distance_increment = (self._speed_kmh / 3.6) * dt
-        heading_rad = math.radians(self._heading_deg)
-        self._pos_lat += (distance_increment / 111000.0) * math.cos(heading_rad)
-        self._pos_lon += (distance_increment / 111000.0) * math.sin(heading_rad)
-        self._dist_traveled_m += distance_increment
         self._wp_error_m = max(
             0.0,
             abs(math.sin(elapsed_since_start / 4.0)) * (1.0 + random.random()),
@@ -326,6 +389,19 @@ class NavigationNode(Node):
 
     def publish_nav_data(self):
         return self._publish_nav_data()
+
+    def destroy_node(self) -> None:
+        if self._gps_conn and self._gps_conn.is_open:
+            try:
+                self._gps_conn.close()
+            except Exception:
+                pass
+        if self._imu_conn and self._imu_conn.is_open:
+            try:
+                self._imu_conn.close()
+            except Exception:
+                pass
+        super().destroy_node()
 
     def timer_callback(self):
         return self._timer_callback()

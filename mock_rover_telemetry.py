@@ -446,6 +446,7 @@ class MockRoverTelemetryPublisher(Node):
                 "node_wp_nav": random.random() > 0.001,
                 "node_img_recog": random.random() > 0.001,
                 "node_motor_ctrl": random.random() > 0.001,
+                "esp32_connected": True,
                 "rosout_last": "Mock node running smoothly.",
             },
             "Sensors": {

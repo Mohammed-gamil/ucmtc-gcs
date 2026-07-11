@@ -140,6 +140,7 @@
         "node_wp_nav",
         "node_img_recog",
         "node_motor_ctrl",
+        "esp32_connected",
         "rosout_last"
       ],
       "properties": {
@@ -148,6 +149,7 @@
         "node_wp_nav": { "type": "boolean" },
         "node_img_recog": { "type": "boolean" },
         "node_motor_ctrl": { "type": "boolean" },
+        "esp32_connected": { "type": "boolean" },
         "rosout_last": { "type": "string" }
       }
     }

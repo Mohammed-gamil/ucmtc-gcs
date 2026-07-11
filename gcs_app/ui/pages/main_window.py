@@ -60,6 +60,7 @@ class MainWindow(QMainWindow):
                 "node_wp_nav",
                 "node_img_recog",
                 "node_motor_ctrl",
+                "esp32_connected",
                 "rosout_last",
             ],
         )
@@ -499,6 +500,7 @@ class MainWindow(QMainWindow):
             "node_wp_nav": "🟢 RUNNING" if data.ros.node_wp_nav else "🔴 FAULT",
             "node_img_recog": "🟢 RUNNING" if data.ros.node_img_recog else "🔴 FAULT",
             "node_motor_ctrl": "🟢 RUNNING" if data.ros.node_motor_ctrl else "🔴 FAULT",
+            "esp32_connected": "🟢 CONNECTED" if getattr(data.ros, "esp32_connected", False) else "🔴 DISCONNECTED",
             "rosout_last": data.ros.rosout_last,
         }
         self.ros_card.set_values(ros_dict)

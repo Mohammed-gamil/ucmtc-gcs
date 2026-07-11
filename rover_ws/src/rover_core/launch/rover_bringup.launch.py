@@ -44,10 +44,16 @@ def generate_launch_description():
         default_value="/cmd_vel",
         description="Topic name for standard cmd_vel commands",
     )
+    use_simulation_arg = DeclareLaunchArgument(
+        "use_simulation",
+        default_value="true",
+        description="Whether to run in simulation mode (true) or talk to physical hardware (false)",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     log_level = LaunchConfiguration("log_level")
     cmd_vel_topic = LaunchConfiguration("cmd_vel_topic")
+    use_simulation = LaunchConfiguration("use_simulation")
 
     # ── Shared parameter file ─────────────────────────────────────────────────
     # FindPackageShare resolves to the installed share directory, avoiding
@@ -63,6 +69,7 @@ def generate_launch_description():
         "parameters": [
             params_file,
             {"use_sim_time": use_sim_time},
+            {"use_simulation": use_simulation},
         ],
         "arguments": ["--ros-args", "--log-level", log_level],
     }
@@ -99,6 +106,7 @@ def generate_launch_description():
         parameters=[
             params_file,
             {"use_sim_time": use_sim_time},
+            {"use_simulation": use_simulation},
             {"cmd_vel_topic": cmd_vel_topic},
         ],
         arguments=["--ros-args", "--log-level", log_level],
@@ -112,6 +120,7 @@ def generate_launch_description():
         parameters=[
             params_file,
             {"use_sim_time": use_sim_time},
+            {"use_simulation": use_simulation},
             {"cmd_vel_topic": cmd_vel_topic},
         ],
         arguments=["--ros-args", "--log-level", log_level],
@@ -121,6 +130,7 @@ def generate_launch_description():
         use_sim_time_arg,
         log_level_arg,
         cmd_vel_topic_arg,
+        use_simulation_arg,
         navigation_node,
         safety_node,
         vision_node,

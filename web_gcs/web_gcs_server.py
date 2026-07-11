@@ -197,7 +197,112 @@ def my_telemetry_update_hook(name, data, timestamp):
         elif name == "/rover/telemetry":
             latest.update(data)
 
+        elif name == "/scan":
+            try:
+                raw_ranges = data.get("ranges", [])
+                range_min = float(data.get("range_min", 0.1))
+                range_max = float(data.get("range_max", 12.0))
+                angle_min = float(data.get("angle_min", -math.pi))
+                angle_max = float(data.get("angle_max", math.pi))
+                angle_inc = float(data.get("angle_increment", 0.0118))
+                
+                valid_ranges = [r for r in raw_ranges if r is not None and range_min <= r <= range_max]
+                fwd_idx = int((-angle_min) / angle_inc) if angle_inc > 0 else 0
+                fwd_idx = max(0, min(fwd_idx, len(raw_ranges) - 1))
+                fwd_range = raw_ranges[fwd_idx] if (raw_ranges and fwd_idx < len(raw_ranges) and raw_ranges[fwd_idx] is not None) else float("inf")
+                
+                n = len(raw_ranges)
+                max_points = 180
+                if n > max_points:
+                    step = max(1, n // max_points)
+                    downsampled = [raw_ranges[i] for i in range(0, n, step)][:max_points]
+                else:
+                    downsampled = raw_ranges
+                    
+                formatted_ranges = [
+                    round(r, 2) if (r is not None and range_min <= r <= range_max and math.isfinite(r)) else None
+                    for r in downsampled
+                ]
+                
+                scan_payload = {
+                    "available": True,
+                    "frame_id": data.get("header", {}).get("frame_id", "laser_frame"),
+                    "angle_min_rad": round(angle_min, 4),
+                    "angle_max_rad": round(angle_max, 4),
+                    "range_min_m": round(range_min, 3),
+                    "range_max_m": round(range_max, 3),
+                    "num_points": len(raw_ranges),
+                    "num_valid": len(valid_ranges),
+                    "forward_range_m": round(fwd_range, 3) if (fwd_range != float("inf") and math.isfinite(fwd_range)) else None,
+                    "min_range_m": round(min(valid_ranges), 3) if valid_ranges else None,
+                    "max_range_m": round(max(valid_ranges), 3) if valid_ranges else None,
+                    "ranges": formatted_ranges,
+                }
+                
+                sensors = latest.setdefault("Sensors", {})
+                sensors["scan"] = scan_payload
+            except Exception as e:
+                print(f"[WARN] Failed to process scan telemetry payload: {e}")
+
 tr.TELEMETRY_UPDATE_HOOK = my_telemetry_update_hook
+
+def my_drive_command_hook(command):
+    action = command.get("action")
+    
+    global sim_estop_triggered
+    if action == "estop":
+        sim_estop_triggered = True
+    elif action == "resume":
+        sim_estop_triggered = False
+
+    if action == "drive":
+        speed = float(command.get("speed_kmh", 0.0))
+        heading = float(command.get("heading_deg", 0.0))
+        throttle = float(command.get("throttle_pct", 0.0))
+        
+        if not (0.0 <= speed <= 15.0):
+            raise ValueError("Speed out of bounds [0, 15]")
+        if not (0.0 <= heading <= 360.0):
+            raise ValueError("Heading out of bounds [0, 360]")
+        if not (0.0 <= throttle <= 1.0):
+            raise ValueError("Throttle out of bounds [0, 1]")
+
+        if cmd_vel_publisher:
+            try:
+                from geometry_msgs.msg import Twist
+                twist = Twist()
+                
+                # Closed-loop proportional control using latest telemetry heading
+                current_heading = 0.0
+                latest = telemetry_state.get("latest")
+                if latest and isinstance(latest, dict):
+                    nav = latest.get("Navigation")
+                    if nav and isinstance(nav, dict):
+                        current_heading = float(nav.get("heading_deg", 0.0))
+
+                error_deg = (heading - current_heading + 540.0) % 360.0 - 180.0
+                twist.linear.x = round(speed / 3.6, 4)
+                angular_z = max(-1.0, min(1.0, -math.radians(error_deg) * 0.4))
+                twist.angular.z = round(angular_z, 4)
+                cmd_vel_publisher.publish(twist)
+            except Exception as e:
+                print(f"[WARN] Failed to publish Twist on /cmd_vel: {e}")
+
+    elif action in ("estop", "stop"):
+        if cmd_vel_publisher:
+            try:
+                from geometry_msgs.msg import Twist
+                cmd_vel_publisher.publish(Twist())
+            except Exception as e:
+                pass
+
+    if command_publisher:
+        msg = String()
+        msg.data = json.dumps(command, separators=(",", ":"))
+        command_publisher.publish(msg)
+
+from web_gcs import websocket as ws
+ws.DRIVE_COMMAND_HOOK = my_drive_command_hook
 
 @app.route("/")
 @app.route("/index.html")
@@ -334,53 +439,7 @@ def post_api_config_topics_reset():
 def post_command():
     try:
         command = request.get_json(force=True)
-        action = command.get("action")
-        
-        global sim_estop_triggered
-        if action == "estop":
-            sim_estop_triggered = True
-        elif action == "resume":
-            sim_estop_triggered = False
-
-        if action == "drive":
-            speed = float(command.get("speed_kmh", 0.0))
-            heading = float(command.get("heading_deg", 0.0))
-            throttle = float(command.get("throttle_pct", 0.0))
-            
-            if not (0.0 <= speed <= 15.0):
-                raise ValueError("Speed out of bounds [0, 15]")
-            if not (0.0 <= heading <= 360.0):
-                raise ValueError("Heading out of bounds [0, 360]")
-            if not (0.0 <= throttle <= 1.0):
-                raise ValueError("Throttle out of bounds [0, 1]")
-
-            if cmd_vel_publisher:
-                try:
-                    from geometry_msgs.msg import Twist
-                    twist = Twist()
-                    heading_deg = heading
-                    if heading_deg > 180.0:
-                        heading_deg -= 360.0
-                    twist.linear.x = round(speed / 3.6, 4)
-                    angular_z = max(-1.0, min(1.0, math.radians(heading_deg) * 0.3))
-                    twist.angular.z = round(angular_z, 4)
-                    cmd_vel_publisher.publish(twist)
-                except Exception as e:
-                    print(f"[WARN] Failed to publish Twist on /cmd_vel: {e}")
-
-        elif action in ("estop", "stop"):
-            if cmd_vel_publisher:
-                try:
-                    from geometry_msgs.msg import Twist
-                    cmd_vel_publisher.publish(Twist())
-                except Exception as e:
-                    pass
-
-        if command_publisher:
-            msg = String()
-            msg.data = json.dumps(command, separators=(",", ":"))
-            command_publisher.publish(msg)
-
+        my_drive_command_hook(command)
         return jsonify({"status": "success", "message": "Command dispatched"})
     except Exception as exc:
         return jsonify({"status": "error", "message": str(exc)}), 400
@@ -643,7 +702,7 @@ DEFAULT_TOPICS = {
     "lane_detection": {"label": "Lane Detection", "path": "/rover/sensors/lane"},
     "obstacle_avoidance": {"label": "Obstacle Avoidance", "path": "/scan"},
     "waypoint_navigator": {"label": "Waypoint Navigator", "path": "/rover/commands/nav"},
-    "image_recognition": {"label": "Image Recognition", "path": "/img"},
+    "image_recognition": {"label": "Image Recognition", "path": "/rgb/image_raw/compressed"},
     "telemetry_aggregator": {"label": "Telemetry Aggregator", "path": "/rover/telemetry"},
     "telemetry_nav": {"label": "Telemetry Nav", "path": "/rover/telemetry/nav"},
     "telemetry_safety": {"label": "Telemetry Safety", "path": "/rover/telemetry/safety"},
@@ -805,6 +864,7 @@ class GCSWebHandler(BaseHTTPRequestHandler):
                             "peers": peers_snapshot,
                             "peer_count": connector.peer_count,
                             "peers_connected": connector.connected_count,
+                            "camera_frame": telemetry_state["camera_frame"],
                         })
                         self.wfile.write(f"data: {payload}\n\n".encode("utf-8"))
                         self.wfile.flush()
@@ -877,6 +937,39 @@ class GCSWebHandler(BaseHTTPRequestHandler):
                 except Exception:
                     ips.append({"interface": "localhost", "ip": "127.0.0.1"})
             self._send_json(200, json.dumps({"interfaces": ips}))
+            return
+
+        if self.path == "/api/topics/img/stream":
+            self.send_response(200)
+            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+            self.send_cors_headers()
+            self.end_headers()
+
+            try:
+                import base64
+                last_frame_b64 = None
+                while True:
+                    with data_lock:
+                        frame_b64 = telemetry_state["camera_frame"]
+                    
+                    if frame_b64 and frame_b64 != last_frame_b64:
+                        try:
+                            jpeg_bytes = base64.b64decode(frame_b64)
+                            self.wfile.write(b"--frame\r\n")
+                            self.wfile.write(b"Content-Type: image/jpeg\r\n")
+                            self.wfile.write(f"Content-Length: {len(jpeg_bytes)}\r\n\r\n".encode("utf-8"))
+                            self.wfile.write(jpeg_bytes)
+                            self.wfile.write(b"\r\n")
+                            self.wfile.flush()
+                            last_frame_b64 = frame_b64
+                        except Exception:
+                            pass
+                    
+                    time.sleep(0.04)
+            except (ConnectionResetError, BrokenPipeError):
+                return
+            except Exception:
+                pass
             return
 
         # Serve static assets
@@ -1368,6 +1461,144 @@ class WebGCSBridgeNode(Node):
             pass
 
 
+def camera_frame_process_worker():
+    import numpy as np
+    import cv2
+    import base64
+    import time
+    from web_gcs.topic_registry import get_registry
+
+    # Lazy imports for ROS types
+    Time = None
+    try:
+        from rclpy.time import Time
+    except ImportError:
+        pass
+
+    last_update_time = 0.0
+    frame_count = 0
+    fps = 0.0
+    last_fps_calc_time = None
+
+    while True:
+        try:
+            registry = get_registry()
+            cam_topic = topic_config.get("image_recognition", {}).get("path", "/rgb/image_raw/compressed")
+            if cam_topic in registry and registry[cam_topic]["latest_raw"] is not None:
+                msg = registry[cam_topic]["latest_raw"]
+                last_update = registry[cam_topic]["last_update"]
+                arrival_time = registry[cam_topic].get("arrival_time")
+                
+                if last_update > last_update_time:
+                    # Let's initialize last_fps_calc_time if needed
+                    if last_fps_calc_time is None:
+                        if arrival_time:
+                            last_fps_calc_time = arrival_time
+                        elif Time:
+                            last_fps_calc_time = Time(nanoseconds=int(last_update * 1e9))
+                        else:
+                            last_fps_calc_time = last_update
+
+                    frame_count += 1
+                    
+                    # Calculate real-time FPS
+                    if arrival_time and Time and hasattr(arrival_time, 'nanoseconds'):
+                        elapsed_duration = arrival_time - last_fps_calc_time
+                        elapsed_seconds = elapsed_duration.nanoseconds / 1e9
+                        if elapsed_seconds >= 1.0:
+                            fps = frame_count / elapsed_seconds
+                            frame_count = 0
+                            last_fps_calc_time = arrival_time
+                    else:
+                        elapsed_seconds = last_update - last_fps_calc_time
+                        if elapsed_seconds >= 1.0:
+                            fps = frame_count / elapsed_seconds
+                            frame_count = 0
+                            last_fps_calc_time = last_update
+
+                    # Calculate latency
+                    latency_ms = 0.0
+                    if arrival_time and Time and hasattr(msg, 'header') and hasattr(msg.header, 'stamp'):
+                        try:
+                            msg_generation_time = Time.from_msg(msg.header.stamp)
+                            latency_duration = arrival_time - msg_generation_time
+                            latency_ms = latency_duration.nanoseconds / 1e6
+                        except Exception:
+                            pass
+                    elif hasattr(msg, 'header') and hasattr(msg.header, 'stamp') and hasattr(msg.header.stamp, 'sec'):
+                        # Fallback simple latency calc
+                        msg_gen = msg.header.stamp.sec + msg.header.stamp.nanosec / 1e9
+                        latency_ms = max(0.0, (last_update - msg_gen) * 1000.0)
+
+                    cv_image = None
+                    if hasattr(msg, "data"):
+                        try:
+                            np_arr = np.frombuffer(msg.data, dtype=np.uint8)
+                            cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+                        except Exception:
+                            pass
+                    
+                    if cv_image is not None:
+                        # Draw instrumentation dashboard overlay
+                        size_kb = len(msg.data) / 1024.0
+                        fps_text = f"FPS: {fps:.1f}"
+                        latency_text = f"Latency: {latency_ms:.1f} ms"
+                        size_text = f"Size: {size_kb:.1f} KB"
+                        
+                        # Draw overlay
+                        cv2.rectangle(cv_image, (10, 10), (260, 95), (0, 0, 0), -1)
+                        cv2.putText(cv_image, fps_text, (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                        cv2.putText(cv_image, latency_text, (20, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                        cv2.putText(cv_image, size_text, (20, 85), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 100, 100), 2)
+                        
+                        success, encoded_img = cv2.imencode('.jpg', cv_image)
+                        if success:
+                            jpeg_bytes = encoded_img.tobytes()
+                            b64_str = base64.b64encode(jpeg_bytes).decode('utf-8')
+                            
+                            registry[cam_topic]["latest_instrumented"] = jpeg_bytes
+                            
+                            with data_lock:
+                                telemetry_state["camera_frame"] = b64_str
+                                telemetry_state["last_camera_update"] = last_update
+                    else:
+                        # Fallback for uncompressed images or non-decodable formats
+                        if hasattr(msg, "encoding") and hasattr(msg, "height") and hasattr(msg, "width"):
+                            height = msg.height
+                            width = msg.width
+                            if msg.encoding in ("bgr8", "rgb8"):
+                                np_arr_raw = np.frombuffer(msg.data, dtype=np.uint8).reshape((height, width, 3))
+                                if msg.encoding == "rgb8":
+                                    np_arr_raw = cv2.cvtColor(np_arr_raw, cv2.COLOR_RGB2BGR)
+                                
+                                success, encoded_img = cv2.imencode('.jpg', np_arr_raw)
+                                if success:
+                                    jpeg_bytes = encoded_img.tobytes()
+                                    b64_str = base64.b64encode(jpeg_bytes).decode('utf-8')
+                                    with data_lock:
+                                        telemetry_state["camera_frame"] = b64_str
+                                        telemetry_state["last_camera_update"] = last_update
+                            elif msg.encoding == "jpeg":
+                                b64_str = base64.b64encode(msg.data).decode('utf-8')
+                                with data_lock:
+                                    telemetry_state["camera_frame"] = b64_str
+                                    telemetry_state["last_camera_update"] = last_update
+                        else:
+                            try:
+                                data_bytes = bytes(msg.data)
+                            except Exception:
+                                data_bytes = msg.data
+                            b64_str = base64.b64encode(data_bytes).decode('utf-8')
+                            with data_lock:
+                                telemetry_state["camera_frame"] = b64_str
+                                telemetry_state["last_camera_update"] = last_update
+                    
+                    last_update_time = last_update
+        except Exception:
+            pass
+        time.sleep(0.04)
+
+
 def run_http_server():
     """Runs the Flask-SocketIO development server at runtime."""
     print(f"[HTTP] Web dashboard serving via Flask-SocketIO at http://localhost:{PORT}")
@@ -1383,6 +1614,10 @@ def main(args=None):
     load_topic_config()
     connector = get_global_connector()
     connector.start()
+
+    # Start background camera frame processing worker thread
+    t_cam = threading.Thread(target=camera_frame_process_worker, daemon=True)
+    t_cam.start()
 
     # Initialize queue for bridge -> websockets hand-off
     out_queue = queue.Queue()
@@ -1506,12 +1741,13 @@ def main(args=None):
                         "orientation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}
                     }, t)
 
-                    update_topic_data("/img", {
+                    cam_topic = topic_config.get("image_recognition", {}).get("path", "/rgb/image_raw/compressed")
+                    update_topic_data(cam_topic, {
                         "format": "jpeg"
                     }, t)
                     registry = get_registry()
-                    if "/img" in registry:
-                        registry["/img"]["latest_raw"] = MockCompressedImage(sim_img_bytes)
+                    if cam_topic in registry:
+                        registry[cam_topic]["latest_raw"] = MockCompressedImage(sim_img_bytes)
 
                     # 2. Update compatibility states (for SSE / events API tests)
                     payload = {
@@ -1570,6 +1806,7 @@ def main(args=None):
                             "node_wp_nav": True,
                             "node_img_recog": True,
                             "node_motor_ctrl": True,
+                            "esp32_connected": True,
                             "rosout_last": "Local simulation running successfully."
                         },
                         "Sensors": {

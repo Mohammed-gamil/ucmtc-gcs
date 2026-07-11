@@ -28,6 +28,7 @@
   { "name": "/gps/raw", "type": "sensor_msgs/msg/NavSatFix" },
   { "name": "/ignore_cv_waypoints", "type": "std_msgs/msg/Bool" },
   { "name": "/img", "type": "sensor_msgs/msg/Image", "transport": "binary_stream" },
+  { "name": "/rgb/image_raw/compressed", "type": "sensor_msgs/msg/CompressedImage", "transport": "binary_stream" },
   { "name": "/imu", "type": "sensor_msgs/msg/Imu" },
   { "name": "/initialpose", "type": "geometry_msgs/msg/PoseWithCovarianceStamped" },
   { "name": "/joint_states", "type": "sensor_msgs/msg/JointState" },

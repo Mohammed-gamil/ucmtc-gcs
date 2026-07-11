@@ -55,9 +55,20 @@ def start_websocket_worker(out_queue):
             
     socketio.start_background_task(worker)
 
+DRIVE_COMMAND_HOOK = None
+
 def init_websocket(app):
     """Initializes SocketIO application parameters."""
     socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
+
+@socketio.on("drive_command")
+def handle_drive_command(data):
+    """Handles low-latency driving commands from the client via WebSockets."""
+    if DRIVE_COMMAND_HOOK is not None:
+        try:
+            DRIVE_COMMAND_HOOK(data)
+        except Exception as e:
+            pass
 
 @socketio.on("join_topic")
 def on_join(data):

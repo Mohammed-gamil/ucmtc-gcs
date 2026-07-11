@@ -822,6 +822,7 @@ function renderAllTelemetry() {
     setNodeRow("setup-node-nav-dot",   "setup-node-nav-lbl",   "setup-node-nav-heartbeat",   ros.node_wp_nav);
     setNodeRow("setup-node-vision-dot","setup-node-vision-lbl","setup-node-vision-heartbeat",ros.node_img_recog);
     setNodeRow("setup-node-telem-dot", "setup-node-telem-lbl", "setup-node-telem-heartbeat", rosState.state !== "NO_SIGNAL");
+    setNodeRow("setup-esp32-dot",      "setup-esp32-lbl",      "setup-esp32-heartbeat",      ros.esp32_connected);
     
     // 9. Mission & Payload
     const mission = payload.Mission || {};
@@ -926,6 +927,28 @@ async function sendCommand(command) {
     if (!commandResultLbl) return;
     commandResultLbl.textContent = "⏳ Sending command...";
     commandResultLbl.style.color = "var(--text-secondary)";
+    
+    // Low-latency WebSocket drive command dispatch (if connected)
+    const isSocketConnected = (typeof io !== "undefined" && socket && typeof socket.emit === "function" && socket.connected);
+    if (isSocketConnected) {
+        try {
+            socket.emit("drive_command", command);
+            commandResultLbl.textContent = `✅ Dispatched (WS): ${command.action.toUpperCase()}`;
+            commandResultLbl.style.color = "var(--green-op)";
+        } catch (err) {
+            commandResultLbl.textContent = `🔌 WS Error: ${err.message}`;
+            commandResultLbl.style.color = "var(--red-alert)";
+        }
+        setTimeout(() => {
+            if (commandResultLbl) {
+                commandResultLbl.textContent = "CONSOLE STANDBY";
+                commandResultLbl.style.color = "";
+            }
+        }, 2500);
+        return;
+    }
+
+    // HTTP POST fallback
     try {
         const response = await fetch("/command", {
             method: "POST",
@@ -1395,7 +1418,7 @@ const DEFAULT_TOPICS = {
     "lane_detection": { label: "Lane Detection", path: "/rover/sensors/lane" },
     "obstacle_avoidance": { label: "Obstacle Avoidance", path: "/scan" },
     "waypoint_navigator": { label: "Waypoint Navigator", path: "/rover/commands/nav" },
-    "image_recognition": { label: "Image Recognition", path: "/img" },
+    "image_recognition": { label: "Image Recognition", path: "/rgb/image_raw/compressed" },
     "telemetry_aggregator": { label: "Telemetry Aggregator", path: "/rover/telemetry" },
     "telemetry_nav": { label: "Telemetry Nav", path: "/rover/telemetry/nav" },
     "telemetry_safety": { label: "Telemetry Safety", path: "/rover/telemetry/safety" },
@@ -1764,8 +1787,10 @@ if (btnRunDiagnostics) {
         const nodeNav = document.getElementById("setup-node-nav-lbl")?.textContent === "ONLINE";
         const nodeSafety = document.getElementById("setup-node-avoid-lbl")?.textContent === "ONLINE";
         const nodeVision = document.getElementById("setup-node-vision-lbl")?.textContent === "ONLINE";
+        const esp32Conn = document.getElementById("setup-esp32-lbl")?.textContent === "ONLINE";
 
         appendDiagLog(` - Motor Control Node: ${nodeMotorCtrl ? 'ONLINE' : 'OFFLINE (Critical)'}`);
+        appendDiagLog(` - ESP32 Serial Link: ${esp32Conn ? 'ONLINE' : 'OFFLINE (Critical)'}`);
         appendDiagLog(` - Waypoint Nav Node: ${nodeNav ? 'ONLINE' : 'OFFLINE (Warning)'}`);
         appendDiagLog(` - Obstacle Avoidance: ${nodeSafety ? 'ONLINE' : 'OFFLINE (Warning)'}`);
         appendDiagLog(` - Image Recognition: ${nodeVision ? 'ONLINE' : 'OFFLINE (Simulation)'}`);
@@ -2048,8 +2073,10 @@ function connectSSE() {
                     cameraImage.src = "data:image/jpeg;base64," + data.camera_frame;
                 }
             } else if (data.connected) {
-                if (!cameraImage.src.endsWith("/api/topics/img/stream")) {
-                    cameraImage.src = "/api/topics/img/stream";
+                const camPath = (gcsTopics && gcsTopics["image_recognition"] && gcsTopics["image_recognition"].path) ? gcsTopics["image_recognition"].path : "/rgb/image_raw/compressed";
+                const streamUrl = `/api/topics${camPath}/stream`;
+                if (!cameraImage.src.endsWith(streamUrl)) {
+                    cameraImage.src = streamUrl;
                 }
             } else {
                 if (!cameraImage.src.endsWith("rover_camera_feed.jpg")) {
@@ -2124,10 +2151,11 @@ function drawTacticalHUD() {
         videoCtx.filter = "none";
     }
 
-    // Check if GCS is connected and telemetry is flowing
+    // Check if GCS is connected and telemetry is flowing, or if we have an active camera stream
     const isConnected = isTelemetryConnected;
+    const hasCameraStream = cameraImage.complete && !cameraImage.src.endsWith("rover_camera_feed.jpg");
 
-    if (isConnected && cameraImage.complete) {
+    if (hasCameraStream || (isConnected && cameraImage.complete)) {
         // Draw background primary camera optics feed
         videoCtx.drawImage(cameraImage, 0, 0, width, height);
     } else {
@@ -2682,12 +2710,12 @@ requestAnimationFrame(drawLidarScan);
 // ─── Keyboard Teleop / Manual Driving ───
 const activeKeys = new Set();
 let teleopInterval = null;
+let keyboardTargetHeading = null;
 
 const DRIVE_KEYS = ["KeyW", "KeyS", "KeyA", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
 
 function handleTeleopTick() {
     let speed = 0.0;
-    let heading = 0.0;
     let active = false;
 
     const maxSpeed = parseFloat(document.getElementById("ctrl-speed")?.value || "5.0");
@@ -2706,19 +2734,36 @@ function handleTeleopTick() {
         active = true;
     }
 
-    if (steerLeft) {
-        heading = 45.0; // Left relative turn
-        active = true;
-    } else if (steerRight) {
-        heading = 315.0; // Right relative turn (wraps to -45.0 in motor control)
-        active = true;
+    if (keyboardTargetHeading === null) {
+        keyboardTargetHeading = (latestTelemetryPayload?.Navigation?.heading_deg !== undefined)
+            ? latestTelemetryPayload.Navigation.heading_deg
+            : parseFloat(document.getElementById("ctrl-heading")?.value || "0.0");
     }
 
+    if (steerLeft) {
+        keyboardTargetHeading -= 9.0; // Rotate left (decrease compass heading)
+        active = true;
+    } else if (steerRight) {
+        keyboardTargetHeading += 9.0; // Rotate right (increase compass heading)
+        active = true;
+    }
+    keyboardTargetHeading = (keyboardTargetHeading + 360.0) % 360.0;
+
     if (active) {
+        // Update UI sliders for visual feedback
+        const headingSlider = document.getElementById("ctrl-heading");
+        if (headingSlider) {
+            headingSlider.value = Math.round(keyboardTargetHeading);
+        }
+        const headingBubble = document.getElementById("heading-bubble");
+        if (headingBubble) {
+            headingBubble.textContent = Math.round(keyboardTargetHeading) + "°";
+        }
+
         sendCommand({
             action: "drive",
             speed_kmh: speed,
-            heading_deg: heading,
+            heading_deg: keyboardTargetHeading,
             throttle_pct: throttle,
             source: "web_gcs_teleop",
             timestamp_ms: Date.now()
@@ -2757,15 +2802,221 @@ window.addEventListener("keyup", (e) => {
             sendCommand({
                 action: "stop",
                 speed_kmh: 0.0,
-                heading_deg: 0.0,
+                heading_deg: keyboardTargetHeading !== null ? keyboardTargetHeading : 0.0,
                 throttle_pct: 0.0,
                 source: "web_gcs_teleop",
                 timestamp_ms: Date.now()
             });
+            keyboardTargetHeading = null; // Reset for next session
         }
     }
 });
 
+
+// ─── PS5 / Gamepad Controller Support ───
+let gamepadInterval = null;
+let gamepadActive = false;
+let prevGamepadButtons = {};
+let gamepadTargetHeading = null;
+let gamepadLastSentActive = false;
+let smoothedLeftX = 0.0;
+let smoothedRightY = 0.0;
+
+function handleGamepad() {
+    const gamepads = navigator.getGamepads();
+    if (!gamepads) return;
+
+    let gp = null;
+    for (let i = 0; i < gamepads.length; i++) {
+        if (gamepads[i] && gamepads[i].connected) {
+            gp = gamepads[i];
+            break;
+        }
+    }
+    if (!gp) {
+        if (gamepadActive) {
+            gamepadActive = false;
+            if (gamepadInterval) {
+                clearInterval(gamepadInterval);
+                gamepadInterval = null;
+            }
+            sendCommand({
+                action: "stop",
+                speed_kmh: 0.0,
+                heading_deg: 0.0,
+                throttle_pct: 0.0,
+                source: "web_gcs_gamepad",
+                timestamp_ms: Date.now()
+            });
+            const resultLbl = document.getElementById("command-result-lbl");
+            if (resultLbl) {
+                resultLbl.textContent = "🎮 GAMEPAD DISCONNECTED";
+                resultLbl.style.color = "var(--amber)";
+            }
+        }
+        return;
+    }
+
+    if (!gamepadActive) {
+        gamepadActive = true;
+        const resultLbl = document.getElementById("command-result-lbl");
+        if (resultLbl) {
+            resultLbl.textContent = "🎮 GAMEPAD CONNECTED";
+            resultLbl.style.color = "var(--green-op)";
+        }
+        if (!gamepadInterval) {
+            gamepadInterval = setInterval(handleGamepadTick, 100);
+        }
+    }
+}
+
+function handleGamepadTick() {
+    const gamepads = navigator.getGamepads();
+    let gp = null;
+    for (let i = 0; i < gamepads.length; i++) {
+        if (gamepads[i] && gamepads[i].connected) {
+            gp = gamepads[i];
+            break;
+        }
+    }
+    if (!gp) return;
+
+    // PS5 DualSense mapping:
+    // axes[0]: Left stick X (-1 left, +1 right) -> heading/rotation
+    // axes[3]: Right stick Y (-1 up, +1 down) -> throttle
+    // axes[5]: R2 analog trigger (0 rest, 1 pressed)
+    // buttons[14]: Touchpad button -> twist/action
+
+    const DEADZONE = 0.15;
+    const gpLeftX = Math.abs(gp.axes[0]) > DEADZONE ? gp.axes[0] : 0;
+    const gpRightY = Math.abs(gp.axes[3]) > DEADZONE ? gp.axes[3] : 0;
+    const r2 = gp.axes[5] !== undefined ? gp.axes[5] : 0;
+    const touchpadPressed = gp.buttons[14] ? gp.buttons[14].pressed : false;
+
+    // Apply exponential smoothing (low pass filter) for buttery smoothness
+    const alpha = 0.35;
+    smoothedLeftX = alpha * gpLeftX + (1 - alpha) * smoothedLeftX;
+    smoothedRightY = alpha * gpRightY + (1 - alpha) * smoothedRightY;
+
+    const leftX = Math.abs(smoothedLeftX) > 0.05 ? smoothedLeftX : 0;
+    const rightY = Math.abs(smoothedRightY) > 0.05 ? smoothedRightY : 0;
+
+    // Map right stick Y (-1..1) to throttle (0..1)
+    // Up (-1) = max throttle, Center/Down (0..1) = 0 throttle
+    const throttle = rightY < -0.05 ? Math.min(1.0, -rightY) : 0.0;
+
+    // R2 as boost / speed multiplier
+    const speedMul = r2 > 0.1 ? 1.0 : 0.5;
+
+    const maxSpeed = parseFloat(document.getElementById("ctrl-speed")?.value || "5.0");
+    // Scale speed by throttle smoothly
+    const speed = maxSpeed * speedMul * throttle;
+
+    // Persistent absolute target heading control
+    if (gamepadTargetHeading === null) {
+        gamepadTargetHeading = (latestTelemetryPayload?.Navigation?.heading_deg !== undefined)
+            ? latestTelemetryPayload.Navigation.heading_deg
+            : parseFloat(document.getElementById("ctrl-heading")?.value || "0.0");
+    }
+
+    // Left stick X controls turn rate (90 deg/s max turn rate)
+    if (Math.abs(leftX) > 0.05) {
+        // Pushing Left (leftX < 0) turns left (decreases compass heading)
+        // Pushing Right (leftX > 0) turns right (increases compass heading)
+        gamepadTargetHeading += leftX * 90.0 * 0.1; // dt = 0.1
+        gamepadTargetHeading = (gamepadTargetHeading + 360.0) % 360.0;
+    }
+
+    const hasInput = Math.abs(leftX) > 0.05 || throttle > 0.0;
+
+    if (hasInput) {
+        // Update UI sliders for visual feedback
+        const headingSlider = document.getElementById("ctrl-heading");
+        if (headingSlider) {
+            headingSlider.value = Math.round(gamepadTargetHeading);
+        }
+        const headingBubble = document.getElementById("heading-bubble");
+        if (headingBubble) {
+            headingBubble.textContent = Math.round(gamepadTargetHeading) + "°";
+        }
+        const throttleInput = document.getElementById("ctrl-throttle");
+        if (throttleInput) {
+            throttleInput.value = Math.round(throttle * 100) / 100;
+        }
+
+        // Twist (touchpad press) -> toggle estop / special action
+        if (touchpadPressed && !prevGamepadButtons[14]) {
+            sendCommand({
+                action: "estop",
+                speed_kmh: 0.0,
+                heading_deg: gamepadTargetHeading,
+                throttle_pct: 0.0,
+                estop_triggered: true,
+                source: "web_gcs_gamepad",
+                timestamp_ms: Date.now()
+            });
+            const resultLbl = document.getElementById("command-result-lbl");
+            if (resultLbl) {
+                resultLbl.textContent = "🎮 GAMEPAD ESTOP!";
+                resultLbl.style.color = "var(--red-alert)";
+            }
+        } else {
+            sendCommand({
+                action: "drive",
+                speed_kmh: Math.round(speed * 100) / 100,
+                heading_deg: gamepadTargetHeading,
+                throttle_pct: Math.round(throttle * 100) / 100,
+                source: "web_gcs_gamepad",
+                timestamp_ms: Date.now()
+            });
+        }
+        gamepadLastSentActive = true;
+    } else {
+        if (gamepadLastSentActive) {
+            sendCommand({
+                action: "stop",
+                speed_kmh: 0.0,
+                heading_deg: gamepadTargetHeading,
+                throttle_pct: 0.0,
+                source: "web_gcs_gamepad",
+                timestamp_ms: Date.now()
+            });
+            gamepadLastSentActive = false;
+            gamepadTargetHeading = null; // Reset for next touch to sync with real telemetry
+        }
+    }
+
+    // Track button state for edge detection
+    for (let i = 0; i < gp.buttons.length; i++) {
+        prevGamepadButtons[i] = gp.buttons[i].pressed;
+    }
+}
+
+// Poll for gamepad connection/disconnection
+setInterval(handleGamepad, 1000);
+
+window.addEventListener("gamepadconnected", (e) => {
+    const gp = e.gamepad;
+    const resultLbl = document.getElementById("command-result-lbl");
+    if (resultLbl) {
+        resultLbl.textContent = `🎮 ${gp.id} CONNECTED`;
+        resultLbl.style.color = "var(--green-op)";
+    }
+    handleGamepad();
+});
+
+window.addEventListener("gamepaddisconnected", () => {
+    gamepadActive = false;
+    if (gamepadInterval) {
+        clearInterval(gamepadInterval);
+        gamepadInterval = null;
+    }
+    const resultLbl = document.getElementById("command-result-lbl");
+    if (resultLbl) {
+        resultLbl.textContent = "🎮 GAMEPAD DISCONNECTED";
+        resultLbl.style.color = "var(--amber)";
+    }
+});
 
 // ═══════════════════════════════════════════════════
 // METADATA-DRIVEN TELEMETRY & WIDGET FACTORY SYSTEM

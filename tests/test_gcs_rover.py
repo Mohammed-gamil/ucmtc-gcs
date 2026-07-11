@@ -103,6 +103,7 @@ class TestTelemetryDataModels(unittest.TestCase):
                 "node_wp_nav": True,
                 "node_img_recog": True,
                 "node_motor_ctrl": True,
+                "esp32_connected": True,
                 "rosout_last": "Active"
             }
         }

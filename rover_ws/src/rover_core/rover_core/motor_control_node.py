@@ -4,12 +4,16 @@ from __future__ import annotations
 
 import json
 import math
+import queue
+import threading
 from typing import Any
 
 from rover_core.ros_compat import Node, String, ensure_ros_initialized, run_node
 from rover_core.telemetry_utils import (
     COMMAND_QOS,
     RELIABLE_QOS,
+    SENSOR_QOS,
+    SAFETY_HEARTBEAT_QOS,
     Twist,
     _STD_MSGS_AVAILABLE,
     decode_json_message,
@@ -62,6 +66,10 @@ class MotorControlNode(Node):
             15.0,
             _float_descriptor("Maximum speed limit in km/h", 0.0, 50.0),
         )
+        self.declare_parameter("esp32_serial_port", "/dev/ttyUSB2")
+        self.declare_parameter("esp32_baud_rate", 115200)
+        self.declare_parameter("enable_esp32", True)
+        self.declare_parameter("use_simulation", True)
 
         publish_rate_hz: float = (
             self.get_parameter("publish_rate_hz").get_parameter_value().double_value
@@ -69,7 +77,28 @@ class MotorControlNode(Node):
         self._max_speed_kmh: float = (
             self.get_parameter("max_speed_kmh").get_parameter_value().double_value
         )
+        self._esp32_port = self.get_parameter("esp32_serial_port").get_parameter_value().string_value
+        self._esp32_baud = self.get_parameter("esp32_baud_rate").get_parameter_value().integer_value
+        self._enable_esp32 = self.get_parameter("enable_esp32").get_parameter_value().bool_value
+        self._use_simulation = self.get_parameter("use_simulation").get_parameter_value().bool_value
+        if self._use_simulation:
+            self._enable_esp32 = False
         period_sec = 1.0 / max(publish_rate_hz, 0.1)
+
+        # ── Serial Port to ESP32 ─────────────────────────────────────────────
+        self._serial_conn = None
+        if self._enable_esp32:
+            try:
+                import serial
+                self._serial_conn = serial.Serial(
+                    port=self._esp32_port,
+                    baudrate=self._esp32_baud,
+                    timeout=0.1,
+                    write_timeout=0.1
+                )
+                self.get_logger().info(f"Connected to ESP32 on {self._esp32_port} at {self._esp32_baud} baud.")
+            except Exception as e:
+                self.get_logger().warning(f"Could not open ESP32 serial port {self._esp32_port}: {e}. Running in simulation/fallback mode.")
 
         # ── Pub / Sub ────────────────────────────────────────────────────────
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
@@ -86,6 +115,15 @@ class MotorControlNode(Node):
         self._heartbeat_seq = 0
         self._last_command: dict[str, Any] = {}
         self._estop_latched = False
+        self._current_heading_deg = 0.0
+        self._safety_blocked = False
+
+        self._running = True
+        self._serial_queue = queue.Queue(maxsize=10)
+        self._serial_thread = None
+        if self._serial_conn:
+            self._serial_thread = threading.Thread(target=self._serial_worker, daemon=True)
+            self._serial_thread.start()
 
         self._timer = self.create_timer(period_sec, self._timer_callback)
         self.get_logger().info(
@@ -95,6 +133,8 @@ class MotorControlNode(Node):
     def _init_topics(self) -> None:
         motor_topic = get_topic_path("motor_control", "/rover/commands/motor")
         control_topic = get_topic_path("telemetry_control", "/rover/telemetry/control")
+        nav_topic = get_topic_path("telemetry_nav", "/rover/telemetry/nav")
+        safety_topic = get_topic_path("telemetry_safety", "/rover/telemetry/safety")
         
         # Command velocity topic parameter override
         cmd_vel_topic = self.get_parameter("cmd_vel_topic").get_parameter_value().string_value
@@ -106,6 +146,18 @@ class MotorControlNode(Node):
             motor_topic,
             self._motor_command_callback,
             COMMAND_QOS,
+        )
+        self._nav_subscription = self.create_subscription(
+            String,
+            nav_topic,
+            self._nav_callback,
+            SENSOR_QOS,
+        )
+        self._safety_subscription = self.create_subscription(
+            String,
+            safety_topic,
+            self._safety_callback,
+            SAFETY_HEARTBEAT_QOS,
         )
         self._heartbeat_publisher = self.create_publisher(
             String,
@@ -140,6 +192,12 @@ class MotorControlNode(Node):
             if hasattr(self, "_command_subscription") and self._command_subscription:
                 self.destroy_subscription(self._command_subscription)
                 self._command_subscription = None
+            if hasattr(self, "_nav_subscription") and self._nav_subscription:
+                self.destroy_subscription(self._nav_subscription)
+                self._nav_subscription = None
+            if hasattr(self, "_safety_subscription") and self._safety_subscription:
+                self.destroy_subscription(self._safety_subscription)
+                self._safety_subscription = None
             if hasattr(self, "_heartbeat_publisher") and self._heartbeat_publisher:
                 self.destroy_publisher(self._heartbeat_publisher)
                 self._heartbeat_publisher = None
@@ -153,6 +211,56 @@ class MotorControlNode(Node):
             self.get_logger().error(f"Error reconfiguring MotorControlNode topics: {e}")
     # ── Command handling ─────────────────────────────────────────────────────
 
+    def _serial_worker(self) -> None:
+        while self._running:
+            try:
+                cmd = self._serial_queue.get(timeout=0.05)
+                if self._serial_conn and self._serial_conn.is_open:
+                    try:
+                        self._serial_conn.write(cmd)
+                        self._serial_conn.flush()
+                    except Exception as e:
+                        self.get_logger().error(f"Serial write error in worker: {e}")
+            except queue.Empty:
+                continue
+
+    def _queue_serial_write(self, data: bytes) -> None:
+        if not self._serial_conn:
+            return
+        if data == b"E\n":
+            while not self._serial_queue.empty():
+                try:
+                    self._serial_queue.get_nowait()
+                except Exception:
+                    break
+        try:
+            self._serial_queue.put_nowait(data)
+        except queue.Full:
+            try:
+                self._serial_queue.get_nowait()
+                self._serial_queue.put_nowait(data)
+            except Exception:
+                pass
+
+    def _nav_callback(self, msg) -> None:
+        nav_data = decode_json_message(msg)
+        if nav_data:
+            self._current_heading_deg = float(nav_data.get("heading_deg", 0.0))
+
+    def _safety_callback(self, msg) -> None:
+        safety_data = decode_json_message(msg)
+        if safety_data:
+            self._safety_blocked = bool(
+                safety_data.get("estop_triggered")
+                or safety_data.get("collision_detected")
+                or safety_data.get("is_blocked")
+            )
+            if self._safety_blocked:
+                self._send_serial_estop()
+
+    def _send_serial_estop(self) -> None:
+        self._queue_serial_write(b"E\n")
+
     def _motor_command_callback(self, msg) -> None:
         command = decode_json_message(msg)
         if not command:
@@ -164,27 +272,47 @@ class MotorControlNode(Node):
             command["speed_kmh"] = speed
             self.get_logger().debug("Motor control accepted drive command")
             # Publish standard /cmd_vel: convert km/h → m/s on linear.x
-            # heading_deg is mapped to angular.z (positive = turn left, rad/s)
+            # closed-loop proportional control tracking the absolute target heading_deg
             if self._cmd_vel_publisher is not None:
                 twist = Twist()
-                heading_deg = float(command.get("heading_deg", 0.0))
-                if heading_deg > 180.0:
-                    heading_deg -= 360.0
+                target_heading = float(command.get("heading_deg", 0.0))
+                # Shortest angular distance between target and current heading
+                error_deg = (target_heading - self._current_heading_deg + 540.0) % 360.0 - 180.0
                 twist.linear.x = round(speed / 3.6, 4)         # km/h → m/s
-                # Map heading offset to angular.z (simple proportional, capped ±1 rad/s)
-                angular_z = max(-1.0, min(1.0, math.radians(heading_deg) * 0.3))
+                # Map error to angular.z (positive angular_z turns CCW / left in ROS,
+                # while compass heading increases CW / right, so error must be negated)
+                angular_z = max(-1.0, min(1.0, -math.radians(error_deg) * 0.4))
                 twist.angular.z = round(angular_z, 4)
                 self._cmd_vel_publisher.publish(twist)
+
+                # Convert differential drive outputs to PWM (-255 to 255) for the Cytron driver
+                max_speed_mps = self._max_speed_kmh / 3.6
+                left_mps = twist.linear.x - twist.angular.z * 0.25
+                right_mps = twist.linear.x + twist.angular.z * 0.25
+
+                left_pwm = int((left_mps / max_speed_mps) * 255) if max_speed_mps > 0 else 0
+                right_pwm = int((right_mps / max_speed_mps) * 255) if max_speed_mps > 0 else 0
+
+                left_pwm = max(-255, min(255, left_pwm))
+                right_pwm = max(-255, min(255, right_pwm))
+
+                if self._serial_conn and self._serial_conn.is_open and not self._safety_blocked:
+                    cmd_str = f"D,{left_pwm},{right_pwm}\n"
+                    self._queue_serial_write(cmd_str.encode("utf-8"))
         elif action == "estop":
             self._estop_latched = True
             self.get_logger().warning("Motor control received emergency stop")
             self._publish_zero_cmd_vel()
+            self._send_serial_estop()
         elif action == "resume":
             self._estop_latched = False
             self.get_logger().info("Motor control resumed")
+            if self._serial_conn and self._serial_conn.is_open:
+                self._queue_serial_write(b"R\n")
         elif action == "stop":
             self.get_logger().info("Motor control stopping rover")
             self._publish_zero_cmd_vel()
+            self._send_serial_estop()
         self._last_command = command
 
     # ── Timer ────────────────────────────────────────────────────────────────
@@ -239,6 +367,16 @@ class MotorControlNode(Node):
 
     def destroy_node(self) -> None:
         self._send_zero_command()
+        self._running = False
+        if self._serial_thread:
+            self._serial_thread.join(timeout=1.0)
+        if self._serial_conn and self._serial_conn.is_open:
+            try:
+                self._serial_conn.write(b"E\n")
+                self._serial_conn.flush()
+                self._serial_conn.close()
+            except Exception:
+                pass
         super().destroy_node()
 
 

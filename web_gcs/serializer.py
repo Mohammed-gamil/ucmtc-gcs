@@ -36,28 +36,34 @@ def generate_mjpeg_stream(topic_name):
     last_frame_time = 0.0
     while True:
         entry = registry[topic_name]
-        if entry["latest_raw"] is not None and entry["last_update"] > last_frame_time:
-            last_frame_time = entry["last_update"]
+        latest_raw = entry.get("latest_raw")
+        latest_instrumented = entry.get("latest_instrumented")
+        last_update = entry.get("last_update", 0.0)
+        if latest_raw is not None and last_update > last_frame_time:
+            last_frame_time = last_update
             try:
-                msg = entry["latest_raw"]
-                msg_type = type(msg).__name__
-                if msg_type == "CompressedImage":
-                    jpeg_bytes = bytes(msg.data)
-                elif msg_type == "Image":
-                    import numpy as np
-                    import cv2
-                    img_data = bytes(msg.data)
-                    img_np = np.frombuffer(img_data, dtype=np.uint8)
-                    expected_size = msg.height * msg.width * 3
-                    if len(img_np) >= expected_size:
-                        img_np = img_np[:expected_size].reshape((msg.height, msg.width, 3))
-                        img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                        _, jpeg_bytes_np = cv2.imencode('.jpg', img_bgr)
-                        jpeg_bytes = bytes(jpeg_bytes_np)
-                    else:
-                        raise ValueError(f"Buffer size {len(img_np)} is less than expected {expected_size}")
+                if latest_instrumented is not None:
+                    jpeg_bytes = latest_instrumented
                 else:
-                    jpeg_bytes = bytes(msg.data)
+                    msg = latest_raw
+                    msg_type = type(msg).__name__
+                    if msg_type == "CompressedImage":
+                        jpeg_bytes = bytes(msg.data)
+                    elif msg_type == "Image":
+                        import numpy as np
+                        import cv2
+                        img_data = bytes(msg.data)
+                        img_np = np.frombuffer(img_data, dtype=np.uint8)
+                        expected_size = msg.height * msg.width * 3
+                        if len(img_np) >= expected_size:
+                            img_np = img_np[:expected_size].reshape((msg.height, msg.width, 3))
+                            img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+                            _, jpeg_bytes_np = cv2.imencode('.jpg', img_bgr)
+                            jpeg_bytes = bytes(jpeg_bytes_np)
+                        else:
+                            raise ValueError(f"Buffer size {len(img_np)} is less than expected {expected_size}")
+                    else:
+                        jpeg_bytes = bytes(msg.data)
                 
                 yield (b'--frame\r\n'
                        b'Content-Type: image/jpeg\r\n'

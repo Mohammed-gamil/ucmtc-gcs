@@ -514,6 +514,7 @@ class TelemetryAggregatorNode(Node):
         elif not control_alive:
             rosout_last = "Waiting for motor control heartbeat"
 
+        esp32_connected = bool(self._control.get("esp32_connected", False)) if control_alive else False
         return make_ros_payload(
             node_lane_det=vision_alive,
             node_obs_avoid=safety_alive,
@@ -521,6 +522,7 @@ class TelemetryAggregatorNode(Node):
             node_img_recog=vision_alive,
             node_motor_ctrl=control_alive,
             rosout_last=rosout_last,
+            esp32_connected=esp32_connected,
         )
 
     def build_payload(self) -> dict[str, Any]:

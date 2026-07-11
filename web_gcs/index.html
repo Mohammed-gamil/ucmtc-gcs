@@ -216,7 +216,7 @@
 
                     <div class="cmd-status" id="command-result-lbl">CONSOLE STANDBY</div>
                     <div style="font-size: 8px; font-family: 'Share Tech Mono'; color: var(--cyan); margin-top: 8px; border: 1px dashed rgba(0, 212, 255, 0.2); padding: 4px; text-align: center; background: rgba(0, 212, 255, 0.02); letter-spacing: 0.5px;">
-                        ⌨️ KEYBOARD TELEOP: W/A/S/D OR ARROWS TO DRIVE (AUTO-ESTOP ON RELEASE)
+                        ⌨️ KEYBOARD: W/A/S/D/ARROWS • 🎮 GAMEPAD: LEFT STICK=ROTATION, RIGHT STICK=THROTTLE, R2=BOOST, TOUCHPAD=ESTOP
                     </div>
                 </div>
             </div>
@@ -725,6 +725,19 @@
                                     <td><code id="subsystem-path-telemetry_aggregator">/rover/telemetry</code></td>
                                     <td>RELIABLE/VOLATILE</td>
                                     <td id="setup-node-telem-heartbeat" style="text-align: right;">--</td>
+                                </tr>
+                                <tr>
+                                    <td id="subsystem-label-esp32_connection">ESP32 Connection</td>
+                                    <td><code>USB Serial</code> (UART)</td>
+                                    <td>
+                                        <div class="status-indicator">
+                                            <span class="chip-dot d-offline" id="setup-esp32-dot"></span>
+                                            <span id="setup-esp32-lbl" class="dv err">DISCONNECTED</span>
+                                        </div>
+                                    </td>
+                                    <td><code id="subsystem-path-esp32_connection">/dev/ttyUSB2</code></td>
+                                    <td>115200 Baud</td>
+                                    <td id="setup-esp32-heartbeat" style="text-align: right;">--</td>
                                 </tr>
                             </tbody>
                         </table>
