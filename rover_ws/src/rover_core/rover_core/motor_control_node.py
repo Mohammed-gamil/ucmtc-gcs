@@ -117,6 +117,9 @@ class MotorControlNode(Node):
         self._estop_latched = False
         self._current_heading_deg = 0.0
         self._safety_blocked = False
+        self._active_drive_command = False
+        self._drive_speed_kmh = 0.0
+        self._drive_heading_deg = 0.0
 
         self._running = True
         self._serial_queue = queue.Queue(maxsize=10)
@@ -227,7 +230,7 @@ class MotorControlNode(Node):
     def _queue_serial_write(self, data: bytes) -> None:
         if not self._serial_conn:
             return
-        if data == b"E\n":
+        if data == b"X\n":
             while not self._serial_queue.empty():
                 try:
                     self._serial_queue.get_nowait()
@@ -259,7 +262,67 @@ class MotorControlNode(Node):
                 self._send_serial_estop()
 
     def _send_serial_estop(self) -> None:
-        self._queue_serial_write(b"E\n")
+        self._queue_serial_write(b"X\n")
+
+    def _pwm_to_rover_char(self, left_pwm: int, right_pwm: int) -> str:
+        threshold = 30
+        if abs(left_pwm) < threshold and abs(right_pwm) < threshold:
+            return 'X'
+        if left_pwm >= threshold and right_pwm >= threshold:
+            ratio = left_pwm / max(right_pwm, 1)
+            if 0.6 <= ratio <= 1.4:
+                return 'W'
+            elif ratio < 0.6:
+                return 'Q'
+            else:
+                return 'E'
+        elif left_pwm <= -threshold and right_pwm <= -threshold:
+            ratio = abs(left_pwm) / max(abs(right_pwm), 1)
+            if 0.6 <= ratio <= 1.4:
+                return 'S'
+            elif ratio < 0.6:
+                return 'Z'
+            else:
+                return 'C'
+        elif left_pwm <= -threshold and right_pwm >= threshold:
+            return 'A'
+        elif left_pwm >= threshold and right_pwm <= -threshold:
+            return 'D'
+        return 'X'
+
+    def _publish_drive_command(self) -> None:
+        if self._cmd_vel_publisher is None:
+            return
+        target_heading = self._drive_heading_deg
+        error_deg = (target_heading - self._current_heading_deg + 540.0) % 360.0 - 180.0
+
+        twist = Twist()
+        twist.linear.x = round(self._drive_speed_kmh / 3.6, 4)
+        angular_z = max(-1.0, min(1.0, -math.radians(error_deg) * 0.4))
+        twist.angular.z = round(angular_z, 4)
+        self._cmd_vel_publisher.publish(twist)
+
+        max_speed_mps = self._max_speed_kmh / 3.6
+        if max_speed_mps <= 0:
+            return
+        left_mps = twist.linear.x - twist.angular.z * 0.25
+        right_mps = twist.linear.x + twist.angular.z * 0.25
+
+        max_req = max(abs(left_mps), abs(right_mps))
+        if max_req > max_speed_mps:
+            scale = max_speed_mps / max_req
+            left_mps *= scale
+            right_mps *= scale
+
+        left_pwm = int((left_mps / max_speed_mps) * 255)
+        right_pwm = int((right_mps / max_speed_mps) * 255)
+
+        left_pwm = max(-255, min(255, left_pwm))
+        right_pwm = max(-255, min(255, right_pwm))
+
+        if self._serial_conn and self._serial_conn.is_open and not self._safety_blocked:
+            rover_char = self._pwm_to_rover_char(left_pwm, right_pwm)
+            self._queue_serial_write(f"{rover_char}\n".encode("utf-8"))
 
     def _motor_command_callback(self, msg) -> None:
         command = decode_json_message(msg)
@@ -269,37 +332,14 @@ class MotorControlNode(Node):
         if action == "drive":
             speed = float(command.get("speed_kmh", 0.0))
             speed = min(speed, self._max_speed_kmh)
+            self._drive_speed_kmh = speed
+            self._drive_heading_deg = float(command.get("heading_deg", 0.0))
+            self._active_drive_command = True
             command["speed_kmh"] = speed
             self.get_logger().debug("Motor control accepted drive command")
-            # Publish standard /cmd_vel: convert km/h → m/s on linear.x
-            # closed-loop proportional control tracking the absolute target heading_deg
-            if self._cmd_vel_publisher is not None:
-                twist = Twist()
-                target_heading = float(command.get("heading_deg", 0.0))
-                # Shortest angular distance between target and current heading
-                error_deg = (target_heading - self._current_heading_deg + 540.0) % 360.0 - 180.0
-                twist.linear.x = round(speed / 3.6, 4)         # km/h → m/s
-                # Map error to angular.z (positive angular_z turns CCW / left in ROS,
-                # while compass heading increases CW / right, so error must be negated)
-                angular_z = max(-1.0, min(1.0, -math.radians(error_deg) * 0.4))
-                twist.angular.z = round(angular_z, 4)
-                self._cmd_vel_publisher.publish(twist)
-
-                # Convert differential drive outputs to PWM (-255 to 255) for the Cytron driver
-                max_speed_mps = self._max_speed_kmh / 3.6
-                left_mps = twist.linear.x - twist.angular.z * 0.25
-                right_mps = twist.linear.x + twist.angular.z * 0.25
-
-                left_pwm = int((left_mps / max_speed_mps) * 255) if max_speed_mps > 0 else 0
-                right_pwm = int((right_mps / max_speed_mps) * 255) if max_speed_mps > 0 else 0
-
-                left_pwm = max(-255, min(255, left_pwm))
-                right_pwm = max(-255, min(255, right_pwm))
-
-                if self._serial_conn and self._serial_conn.is_open and not self._safety_blocked:
-                    cmd_str = f"D,{left_pwm},{right_pwm}\n"
-                    self._queue_serial_write(cmd_str.encode("utf-8"))
+            self._publish_drive_command()
         elif action == "estop":
+            self._active_drive_command = False
             self._estop_latched = True
             self.get_logger().warning("Motor control received emergency stop")
             self._publish_zero_cmd_vel()
@@ -307,9 +347,10 @@ class MotorControlNode(Node):
         elif action == "resume":
             self._estop_latched = False
             self.get_logger().info("Motor control resumed")
-            if self._serial_conn and self._serial_conn.is_open:
-                self._queue_serial_write(b"R\n")
+            if self._active_drive_command and self._serial_conn and self._serial_conn.is_open:
+                self._publish_drive_command()
         elif action == "stop":
+            self._active_drive_command = False
             self.get_logger().info("Motor control stopping rover")
             self._publish_zero_cmd_vel()
             self._send_serial_estop()
@@ -324,6 +365,9 @@ class MotorControlNode(Node):
             (now_stamp - self._start_stamp).nanoseconds / 1_000_000_000
         )
         timestamp_ms = int(now_stamp.nanoseconds / 1_000_000)
+
+        if self._active_drive_command and not self._safety_blocked:
+            self._publish_drive_command()
 
         payload = {
             "node_motor_ctrl": True,
@@ -372,7 +416,7 @@ class MotorControlNode(Node):
             self._serial_thread.join(timeout=1.0)
         if self._serial_conn and self._serial_conn.is_open:
             try:
-                self._serial_conn.write(b"E\n")
+                self._serial_conn.write(b"X\n")
                 self._serial_conn.flush()
                 self._serial_conn.close()
             except Exception:

@@ -635,78 +635,104 @@ function renderAllTelemetry() {
 
     // 3. IMU
     const imuState = getTopicState("imu");
+    const headingState = (payload.Sensors && payload.Sensors.imu && payload.Sensors.imu.available) ? imuState : commState;
     let heading = nav.heading_deg;
     if (compassNeedle) {
-        if (imuState.state === "NO_SIGNAL" || heading === undefined) {
+        if (headingState.state === "NO_SIGNAL" || heading === undefined) {
             compassNeedle.style.transform = `rotate(0deg)`;
         } else {
             compassNeedle.style.transform = `rotate(${heading}deg)`;
         }
-        applyStateStyles(compassNeedle, imuState.state, imuState.elapsedSec);
+        applyStateStyles(compassNeedle, headingState.state, headingState.elapsedSec);
     }
     if (headingDialVal && headingCardinal) {
-        if (imuState.state === "NO_SIGNAL" || heading === undefined) {
+        if (headingState.state === "NO_SIGNAL" || heading === undefined) {
             headingDialVal.textContent = "NO SIGNAL";
             headingCardinal.textContent = "--";
         } else {
             headingDialVal.textContent = heading.toFixed(1) + "°";
             headingCardinal.textContent = getCardinalDirection(heading);
         }
-        applyStateStyles(headingDialVal, imuState.state, imuState.elapsedSec);
-        applyStateStyles(headingCardinal, imuState.state, imuState.elapsedSec);
+        applyStateStyles(headingDialVal, headingState.state, headingState.elapsedSec);
+        applyStateStyles(headingCardinal, headingState.state, headingState.elapsedSec);
     }
 
     // 4. Odom
     const odomState = getTopicState("odom");
+    const speedState = (payload.Odom && payload.Odom.available) ? odomState : commState;
     let speed = payload.Odom && payload.Odom.available ? payload.Odom.speed_kmh : (nav.speed_kmh !== undefined ? nav.speed_kmh : undefined);
     let odomBadge = payload.Odom && payload.Odom.available ? " (ODOM)" : "";
     if (navSpeed) {
-        if (odomState.state === "NO_SIGNAL" || speed === undefined) {
+        if (speedState.state === "NO_SIGNAL" || speed === undefined) {
             navSpeed.textContent = "NO SIGNAL";
         } else {
             navSpeed.textContent = speed.toFixed(2) + " km/h" + odomBadge;
         }
-        applyStateStyles(navSpeed, odomState.state, odomState.elapsedSec);
+        applyStateStyles(navSpeed, speedState.state, speedState.elapsedSec);
     }
     if (navSpeedLimit) {
-        if (odomState.state === "NO_SIGNAL" || nav.speed_limit === undefined) {
+        if (commState.state === "NO_SIGNAL" || nav.speed_limit === undefined) {
             navSpeedLimit.textContent = "-- km/h";
         } else {
             navSpeedLimit.textContent = nav.speed_limit.toFixed(1) + " km/h";
         }
-        applyStateStyles(navSpeedLimit, odomState.state, odomState.elapsedSec);
+        applyStateStyles(navSpeedLimit, commState.state, commState.elapsedSec);
     }
     if (navDistance) {
-        if (odomState.state === "NO_SIGNAL" || nav.dist_traveled_m === undefined) {
+        const distState = (payload.Odom && payload.Odom.available) ? odomState : commState;
+        if (distState.state === "NO_SIGNAL" || nav.dist_traveled_m === undefined) {
             navDistance.textContent = "NO SIGNAL";
         } else {
             navDistance.textContent = nav.dist_traveled_m.toFixed(1) + " m";
         }
-        applyStateStyles(navDistance, odomState.state, odomState.elapsedSec);
+        applyStateStyles(navDistance, distState.state, distState.elapsedSec);
     }
 
     // 5. GPS
     const gpsState = getTopicState("gps");
+    const positionState = (payload.GPS && payload.GPS.available) ? gpsState : commState;
     let lat = payload.GPS && payload.GPS.available ? payload.GPS.latitude : (nav.pos_lat !== undefined ? nav.pos_lat : undefined);
     let lon = payload.GPS && payload.GPS.available ? payload.GPS.longitude : (nav.pos_lon !== undefined ? nav.pos_lon : undefined);
     let gpsBadge = payload.GPS && payload.GPS.available ? " (FIX)" : "";
     if (navPosition) {
-        if (gpsState.state === "NO_SIGNAL" || lat === undefined || lon === undefined) {
+        if (positionState.state === "NO_SIGNAL" || lat === undefined || lon === undefined) {
             navPosition.textContent = "NO SIGNAL";
         } else {
             navPosition.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}${gpsBadge}`;
         }
-        applyStateStyles(navPosition, gpsState.state, gpsState.elapsedSec);
+        applyStateStyles(navPosition, positionState.state, positionState.elapsedSec);
     }
 
     // 6. Waypoint Nav
     if (navWaypoint) {
-        if (odomState.state === "NO_SIGNAL" || nav.wp_current === undefined) {
+        if (commState.state === "NO_SIGNAL" || nav.wp_current === undefined) {
             navWaypoint.textContent = "NO SIGNAL";
         } else {
             navWaypoint.textContent = `WP ${nav.wp_current} (${(nav.wp_status||'').toUpperCase()}) (err: ${(nav.wp_error_m||0).toFixed(2)}m)`;
         }
-        applyStateStyles(navWaypoint, odomState.state, odomState.elapsedSec);
+        applyStateStyles(navWaypoint, commState.state, commState.elapsedSec);
+    }
+
+    // 6b. Mission Phase
+    const missionPhaseLbl = document.getElementById("nav-mission-phase");
+    if (missionPhaseLbl) {
+        if (commState.state === "NO_SIGNAL" || nav.mission_phase === undefined) {
+            missionPhaseLbl.textContent = "NO SIGNAL";
+        } else {
+            missionPhaseLbl.textContent = nav.mission_phase;
+        }
+        applyStateStyles(missionPhaseLbl, commState.state, commState.elapsedSec);
+    }
+
+    // 6c. Arm Status
+    const armStatusLbl = document.getElementById("nav-arm-status");
+    if (armStatusLbl) {
+        if (commState.state === "NO_SIGNAL" || safety.arm_status === undefined) {
+            armStatusLbl.textContent = "NO SIGNAL";
+        } else {
+            armStatusLbl.textContent = safety.arm_status;
+        }
+        applyStateStyles(armStatusLbl, commState.state, commState.elapsedSec);
     }
 
     // 7. Safety / Diagnostics
@@ -1457,6 +1483,13 @@ function updateUIWithTopics() {
         }
     }
     
+    // Update camera topic toggle button state
+    if (gcsTopics["image_recognition"] && gcsTopics["image_recognition"].path) {
+        if (typeof updateCamTopicButtonState === "function") {
+            updateCamTopicButtonState(gcsTopics["image_recognition"].path);
+        }
+    }
+    
     // 2. Render inputs in the customizer panel
     renderTopicConfigPanel();
 }
@@ -2112,9 +2145,11 @@ connectSSE();
 const videoCanvas = document.getElementById("video-hud-canvas");
 const videoCtx = videoCanvas?.getContext("2d");
 
-// Create background optical frame image
-const cameraImage = new Image();
-cameraImage.src = "rover_camera_feed.jpg";
+// Create background optical frame image using hidden in-DOM image for native MJPEG rendering
+const cameraImage = document.getElementById("camera-stream-hidden") || new Image();
+if (!cameraImage.src) {
+    cameraImage.src = "rover_camera_feed.jpg";
+}
 
 let showHUD = true;
 let isThermal = false;
@@ -2134,8 +2169,69 @@ document.getElementById("btn-toggle-noise")?.addEventListener("click", (e) => {
     e.target.classList.toggle("btn-dialog-primary");
 });
 
+function updateCamTopicButtonState(path) {
+    const btn = document.getElementById("btn-toggle-cam-topic");
+    if (!btn) return;
+    if (path === "/img") {
+        btn.textContent = "STREAM: RAW IMAGE";
+        btn.style.borderColor = "var(--cyan)";
+        btn.style.color = "var(--cyan)";
+    } else {
+        btn.textContent = "STREAM: COMPRESSED";
+        btn.style.borderColor = "var(--amber)";
+        btn.style.color = "var(--amber)";
+    }
+}
+
+document.getElementById("btn-toggle-cam-topic")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const currentPath = (gcsTopics["image_recognition"] && gcsTopics["image_recognition"].path) 
+        ? gcsTopics["image_recognition"].path 
+        : "/rgb/image_raw/compressed";
+    const newPath = (currentPath === "/rgb/image_raw/compressed") ? "/img" : "/rgb/image_raw/compressed";
+    
+    // Construct config payload
+    const updatedPayload = JSON.parse(JSON.stringify(gcsTopics));
+    if (!updatedPayload["image_recognition"]) {
+        updatedPayload["image_recognition"] = { label: "Image Recognition", path: "/rgb/image_raw/compressed" };
+    }
+    updatedPayload["image_recognition"].path = newPath;
+    
+    try {
+        const res = await fetch("/api/config/topics", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(updatedPayload)
+        });
+        
+        if (res.ok) {
+            // Update local state
+            gcsTopics = updatedPayload;
+            
+            // Update UI button and config panel
+            updateUIWithTopics();
+            
+            // Force immediate reload of the camera image source to point to the new stream endpoint!
+            const streamUrl = `/api/topics${newPath}/stream`;
+            cameraImage.src = streamUrl;
+        }
+    } catch (err) {
+        console.error("Error toggling camera topic:", err);
+    }
+});
+
 function drawTacticalHUD() {
     if (!videoCanvas || !videoCtx) return;
+
+    // Sync canvas buffer size to match camera's natural source resolution to prevent blurry downscaling
+    if (cameraImage.complete && cameraImage.naturalWidth > 0) {
+        if (videoCanvas.width !== cameraImage.naturalWidth || videoCanvas.height !== cameraImage.naturalHeight) {
+            videoCanvas.width = cameraImage.naturalWidth;
+            videoCanvas.height = cameraImage.naturalHeight;
+        }
+    }
 
     const width = videoCanvas.width;
     const height = videoCanvas.height;
@@ -2359,6 +2455,23 @@ function drawTacticalHUD() {
             const pad = (n) => String(n).padStart(2, "0");
             const ms = String(d.getMilliseconds()).padStart(3, "0").slice(0, 2);
             timestampElem.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${ms}`;
+        }
+
+        // Draw Handbrake / Drift overlay
+        if (typeof handbrakeActive !== 'undefined' && handbrakeActive) {
+            videoCtx.save();
+            videoCtx.fillStyle = "rgba(255, 69, 0, 0.15)";
+            videoCtx.fillRect(0, 0, width, height); // flash red/orange tint
+            
+            videoCtx.strokeStyle = "rgba(255, 69, 0, 0.8)";
+            videoCtx.lineWidth = 3;
+            videoCtx.strokeRect(10, 10, width - 20, height - 20); // border flash
+            
+            videoCtx.fillStyle = "rgba(255, 69, 0, 0.9)";
+            videoCtx.font = "bold 13px monospace";
+            videoCtx.textAlign = "center";
+            videoCtx.fillText("⚡ TACTICAL DRIFT // HANDBRAKE ENGAGED ⚡", width / 2, height - 40);
+            videoCtx.restore();
         }
     }
 
@@ -2711,13 +2824,12 @@ requestAnimationFrame(drawLidarScan);
 const activeKeys = new Set();
 let teleopInterval = null;
 let keyboardTargetHeading = null;
+let currentTeleopSpeed = 0.0;
+let handbrakeActive = false;
 
-const DRIVE_KEYS = ["KeyW", "KeyS", "KeyA", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+const DRIVE_KEYS = ["KeyW", "KeyS", "KeyA", "KeyD", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Space"];
 
 function handleTeleopTick() {
-    let speed = 0.0;
-    let active = false;
-
     const maxSpeed = parseFloat(document.getElementById("ctrl-speed")?.value || "5.0");
     const throttle = parseFloat(document.getElementById("ctrl-throttle")?.value || "0.5");
 
@@ -2725,31 +2837,87 @@ function handleTeleopTick() {
     let driveBackward = activeKeys.has("KeyS") || activeKeys.has("ArrowDown");
     let steerLeft = activeKeys.has("KeyA") || activeKeys.has("ArrowLeft");
     let steerRight = activeKeys.has("KeyD") || activeKeys.has("ArrowRight");
+    let handbrake = activeKeys.has("Space");
 
-    if (driveForward) {
-        speed = maxSpeed;
-        active = true;
-    } else if (driveBackward) {
-        speed = 0.0; // Brakes/Stop (cannot reverse speed on the backend)
-        active = true;
+    handbrakeActive = handbrake;
+
+    // Check if we need to shut down the loop when no keys are pressed and speed is 0
+    if (activeKeys.size === 0 && currentTeleopSpeed === 0.0) {
+        if (teleopInterval) {
+            clearInterval(teleopInterval);
+            teleopInterval = null;
+        }
+        sendCommand({
+            action: "stop",
+            speed_kmh: 0.0,
+            heading_deg: keyboardTargetHeading !== null ? keyboardTargetHeading : 0.0,
+            throttle_pct: 0.0,
+            source: "web_gcs_teleop",
+            timestamp_ms: Date.now()
+        });
+        keyboardTargetHeading = null;
+        return;
     }
 
-    if (keyboardTargetHeading === null) {
-        keyboardTargetHeading = (latestTelemetryPayload?.Navigation?.heading_deg !== undefined)
-            ? latestTelemetryPayload.Navigation.heading_deg
-            : parseFloat(document.getElementById("ctrl-heading")?.value || "0.0");
+    let active = false;
+
+    // Throttle / Brake / Drift logic
+    if (handbrake) {
+        currentTeleopSpeed = 0.0;
+        active = true;
+    } else {
+        if (driveForward) {
+            // Smooth acceleration: add 0.4 km/h per tick (at 50ms, takes 0.5s to reach 4 km/h)
+            currentTeleopSpeed = Math.min(maxSpeed, currentTeleopSpeed + 0.4);
+            active = true;
+        } else if (driveBackward) {
+            // Smooth braking: subtract 0.8 km/h per tick (decelerates twice as fast as acceleration)
+            currentTeleopSpeed = Math.max(0.0, currentTeleopSpeed - 0.8);
+            active = true;
+        } else {
+            // Coasting deceleration: slow down naturally by 0.2 km/h per tick
+            if (currentTeleopSpeed > 0.0) {
+                currentTeleopSpeed = Math.max(0.0, currentTeleopSpeed - 0.2);
+                active = true;
+            }
+        }
     }
 
-    if (steerLeft) {
-        keyboardTargetHeading -= 9.0; // Rotate left (decrease compass heading)
-        active = true;
-    } else if (steerRight) {
-        keyboardTargetHeading += 9.0; // Rotate right (increase compass heading)
-        active = true;
-    }
-    keyboardTargetHeading = (keyboardTargetHeading + 360.0) % 360.0;
+    // Dynamically get the current actual heading of the rover
+    const currentActualHeading = (latestTelemetryPayload?.Navigation?.heading_deg !== undefined)
+        ? latestTelemetryPayload.Navigation.heading_deg
+        : parseFloat(document.getElementById("ctrl-heading")?.value || "0.0");
 
-    if (active) {
+    // If we are not actively steering, keep target heading synced to the actual heading with rate limiting
+    if (!steerLeft && !steerRight) {
+        if (keyboardTargetHeading === null) {
+            keyboardTargetHeading = currentActualHeading;
+        } else {
+            const diff = ((currentActualHeading - keyboardTargetHeading + 540) % 360) - 180;
+            // Smoothly interpolate towards actual heading by max 1.5 degrees per tick (filters out sensor spikes)
+            const step = Math.max(-1.5, Math.min(1.5, diff * 0.15));
+            keyboardTargetHeading = (keyboardTargetHeading + step + 360) % 360;
+        }
+    } else {
+        // We are steering! If keyboardTargetHeading was null, initialize it to actual heading
+        if (keyboardTargetHeading === null) {
+            keyboardTargetHeading = currentActualHeading;
+        }
+        
+        // Smooth steering: turn target heading continuously when steer keys are held
+        // At 50ms tick rate, 2.5 degrees/tick matches 50 deg/sec rotation
+        if (steerLeft) {
+            keyboardTargetHeading -= 2.5;
+            active = true;
+        } else if (steerRight) {
+            keyboardTargetHeading += 2.5;
+            active = true;
+        }
+        keyboardTargetHeading = (keyboardTargetHeading + 360.0) % 360.0;
+    }
+
+    // Send command if active (or speed is positive / handbrake is engaged)
+    if (active || currentTeleopSpeed > 0.0 || handbrake) {
         // Update UI sliders for visual feedback
         const headingSlider = document.getElementById("ctrl-heading");
         if (headingSlider) {
@@ -2761,10 +2929,10 @@ function handleTeleopTick() {
         }
 
         sendCommand({
-            action: "drive",
-            speed_kmh: speed,
+            action: handbrake ? "stop" : "drive",
+            speed_kmh: currentTeleopSpeed,
             heading_deg: keyboardTargetHeading,
-            throttle_pct: throttle,
+            throttle_pct: handbrake ? 0.0 : throttle,
             source: "web_gcs_teleop",
             timestamp_ms: Date.now()
         });
@@ -2784,8 +2952,9 @@ window.addEventListener("keydown", (e) => {
             activeKeys.add(e.code);
             
             if (!teleopInterval) {
+                // Launch loop immediately and run at 50ms (20 Hz) for responsive NFS-like controls
                 handleTeleopTick();
-                teleopInterval = setInterval(handleTeleopTick, 200);
+                teleopInterval = setInterval(handleTeleopTick, 50);
             }
         }
     }
@@ -2795,20 +2964,14 @@ window.addEventListener("keyup", (e) => {
     if (DRIVE_KEYS.includes(e.code)) {
         activeKeys.delete(e.code);
         
-        if (activeKeys.size === 0 && teleopInterval) {
-            clearInterval(teleopInterval);
-            teleopInterval = null;
-            
-            sendCommand({
-                action: "stop",
-                speed_kmh: 0.0,
-                heading_deg: keyboardTargetHeading !== null ? keyboardTargetHeading : 0.0,
-                throttle_pct: 0.0,
-                source: "web_gcs_teleop",
-                timestamp_ms: Date.now()
-            });
-            keyboardTargetHeading = null; // Reset for next session
+        // Handbrake reset immediately on keyup
+        if (e.code === "Space") {
+            handbrakeActive = false;
         }
+
+        // The interval is NOT cleared here anymore.
+        // Instead, handleTeleopTick will smoothly decelerate/coast speed to 0.0
+        // and then clear itself automatically.
     }
 });
 
@@ -2865,7 +3028,7 @@ function handleGamepad() {
             resultLbl.style.color = "var(--green-op)";
         }
         if (!gamepadInterval) {
-            gamepadInterval = setInterval(handleGamepadTick, 100);
+            gamepadInterval = setInterval(handleGamepadTick, 50);
         }
     }
 }
@@ -2881,53 +3044,73 @@ function handleGamepadTick() {
     }
     if (!gp) return;
 
-    // PS5 DualSense mapping:
-    // axes[0]: Left stick X (-1 left, +1 right) -> heading/rotation
-    // axes[3]: Right stick Y (-1 up, +1 down) -> throttle
-    // axes[5]: R2 analog trigger (0 rest, 1 pressed)
-    // buttons[14]: Touchpad button -> twist/action
+    // PS5 DualSense / W3C standard mapping:
+    // axes[0]: Left stick X (-1 left, +1 right) -> steering
+    // buttons[7]: R2 analog trigger (0.0 to 1.0) -> throttle
+    // buttons[6]: L2 analog trigger (0.0 to 1.0) -> brake
+    // buttons[1]: Circle button -> handbrake
+    // buttons[14]: Touchpad click -> estop action
 
     const DEADZONE = 0.15;
     const gpLeftX = Math.abs(gp.axes[0]) > DEADZONE ? gp.axes[0] : 0;
-    const gpRightY = Math.abs(gp.axes[3]) > DEADZONE ? gp.axes[3] : 0;
-    const r2 = gp.axes[5] !== undefined ? gp.axes[5] : 0;
-    const touchpadPressed = gp.buttons[14] ? gp.buttons[14].pressed : false;
+    const r2 = gp.buttons[7] ? gp.buttons[7].value : 0.0;
+    const l2 = gp.buttons[6] ? gp.buttons[6].value : 0.0;
+    const handbrake = gp.buttons[1] ? gp.buttons[1].pressed : false;
 
-    // Apply exponential smoothing (low pass filter) for buttery smoothness
+    // Apply exponential smoothing for buttery Left stick X steering
     const alpha = 0.35;
     smoothedLeftX = alpha * gpLeftX + (1 - alpha) * smoothedLeftX;
-    smoothedRightY = alpha * gpRightY + (1 - alpha) * smoothedRightY;
-
     const leftX = Math.abs(smoothedLeftX) > 0.05 ? smoothedLeftX : 0;
-    const rightY = Math.abs(smoothedRightY) > 0.05 ? smoothedRightY : 0;
 
-    // Map right stick Y (-1..1) to throttle (0..1)
-    // Up (-1) = max throttle, Center/Down (0..1) = 0 throttle
-    const throttle = rightY < -0.05 ? Math.min(1.0, -rightY) : 0.0;
-
-    // R2 as boost / speed multiplier
-    const speedMul = r2 > 0.1 ? 1.0 : 0.5;
+    handbrakeActive = handbrake;
 
     const maxSpeed = parseFloat(document.getElementById("ctrl-speed")?.value || "5.0");
-    // Scale speed by throttle smoothly
-    const speed = maxSpeed * speedMul * throttle;
+    const defaultThrottle = parseFloat(document.getElementById("ctrl-throttle")?.value || "0.5");
 
-    // Persistent absolute target heading control
-    if (gamepadTargetHeading === null) {
-        gamepadTargetHeading = (latestTelemetryPayload?.Navigation?.heading_deg !== undefined)
-            ? latestTelemetryPayload.Navigation.heading_deg
-            : parseFloat(document.getElementById("ctrl-heading")?.value || "0.0");
+    // Need for Speed physics
+    if (handbrake) {
+        currentTeleopSpeed = 0.0;
+    } else {
+        if (r2 > 0.1) {
+            // Smooth acceleration based on trigger pressure
+            currentTeleopSpeed = Math.min(maxSpeed, currentTeleopSpeed + r2 * 0.4);
+        } else if (l2 > 0.1) {
+            // Smooth braking based on trigger pressure
+            currentTeleopSpeed = Math.max(0.0, currentTeleopSpeed - l2 * 0.8);
+        } else {
+            // Coasting
+            if (currentTeleopSpeed > 0.0) {
+                currentTeleopSpeed = Math.max(0.0, currentTeleopSpeed - 0.2);
+            }
+        }
     }
 
-    // Left stick X controls turn rate (90 deg/s max turn rate)
-    if (Math.abs(leftX) > 0.05) {
-        // Pushing Left (leftX < 0) turns left (decreases compass heading)
-        // Pushing Right (leftX > 0) turns right (increases compass heading)
-        gamepadTargetHeading += leftX * 90.0 * 0.1; // dt = 0.1
+    // Dynamically get the current actual heading of the rover
+    const currentActualHeading = (latestTelemetryPayload?.Navigation?.heading_deg !== undefined)
+        ? latestTelemetryPayload.Navigation.heading_deg
+        : parseFloat(document.getElementById("ctrl-heading")?.value || "0.0");
+
+    // If Left Joystick is centered, keep target heading synced to the actual heading with rate limiting
+    if (Math.abs(leftX) <= 0.05) {
+        if (gamepadTargetHeading === null) {
+            gamepadTargetHeading = currentActualHeading;
+        } else {
+            const diff = ((currentActualHeading - gamepadTargetHeading + 540) % 360) - 180;
+            // Smoothly interpolate towards actual heading by max 1.5 degrees per tick (filters out sensor spikes)
+            const step = Math.max(-1.5, Math.min(1.5, diff * 0.15));
+            gamepadTargetHeading = (gamepadTargetHeading + step + 360) % 360;
+        }
+    } else {
+        if (gamepadTargetHeading === null) {
+            gamepadTargetHeading = currentActualHeading;
+        }
+        // Steering turn rate (dt = 50ms)
+        gamepadTargetHeading += leftX * 2.5; // Turn smoothly by up to 50 deg/sec
         gamepadTargetHeading = (gamepadTargetHeading + 360.0) % 360.0;
     }
 
-    const hasInput = Math.abs(leftX) > 0.05 || throttle > 0.0;
+    const activeThrottle = r2 > 0.1 ? Math.max(defaultThrottle, r2) : defaultThrottle;
+    const hasInput = Math.abs(leftX) > 0.05 || r2 > 0.1 || l2 > 0.1 || handbrake || currentTeleopSpeed > 0.0;
 
     if (hasInput) {
         // Update UI sliders for visual feedback
@@ -2941,10 +3124,10 @@ function handleGamepadTick() {
         }
         const throttleInput = document.getElementById("ctrl-throttle");
         if (throttleInput) {
-            throttleInput.value = Math.round(throttle * 100) / 100;
+            throttleInput.value = Math.round(activeThrottle * 100) / 100;
         }
 
-        // Twist (touchpad press) -> toggle estop / special action
+        const touchpadPressed = gp.buttons[14] ? gp.buttons[14].pressed : false;
         if (touchpadPressed && !prevGamepadButtons[14]) {
             sendCommand({
                 action: "estop",
@@ -2962,10 +3145,10 @@ function handleGamepadTick() {
             }
         } else {
             sendCommand({
-                action: "drive",
-                speed_kmh: Math.round(speed * 100) / 100,
+                action: handbrake ? "stop" : "drive",
+                speed_kmh: Math.round(currentTeleopSpeed * 100) / 100,
                 heading_deg: gamepadTargetHeading,
-                throttle_pct: Math.round(throttle * 100) / 100,
+                throttle_pct: Math.round((handbrake ? 0.0 : activeThrottle) * 100) / 100,
                 source: "web_gcs_gamepad",
                 timestamp_ms: Date.now()
             });
@@ -2982,7 +3165,7 @@ function handleGamepadTick() {
                 timestamp_ms: Date.now()
             });
             gamepadLastSentActive = false;
-            gamepadTargetHeading = null; // Reset for next touch to sync with real telemetry
+            gamepadTargetHeading = null;
         }
     }
 

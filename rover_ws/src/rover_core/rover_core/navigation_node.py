@@ -120,6 +120,7 @@ class NavigationNode(Node):
         initial_state = random_navigation_defaults()
         self._speed_kmh = initial_state["speed_kmh"]
         self._target_speed_kmh = 0.0
+        self._saved_speed_kmh = 0.0
         self._heading_deg = initial_state["heading_deg"]
         self._target_heading_deg = 0.0
         self._pos_lat = initial_state["pos_lat"]
@@ -235,15 +236,21 @@ class NavigationNode(Node):
         self._last_command = command
         action = str(command.get("action", "")).lower()
         if action == "estop":
+            self._saved_speed_kmh = self._target_speed_kmh
             self._target_speed_kmh = 0.0
             self._wp_status = "blocked"
             return
         if action == "stop":
+            self._saved_speed_kmh = self._target_speed_kmh
             self._target_speed_kmh = 0.0
             self._wp_status = "idle"
             return
         if action == "resume":
+            self._target_speed_kmh = self._saved_speed_kmh
             self._wp_status = "navigating" if self._target_speed_kmh > 0 else "idle"
+            return
+
+        if action not in ("", "drive"):
             return
 
         speed = command.get("speed_kmh")
@@ -340,8 +347,10 @@ class NavigationNode(Node):
             dt = 0.1
             distance_increment = (self._speed_kmh / 3.6) * dt
             heading_rad = math.radians(self._heading_deg)
-            self._pos_lat += (distance_increment / 111000.0) * math.cos(heading_rad)
-            self._pos_lon += (distance_increment / 111000.0) * math.sin(heading_rad)
+            meters_per_deg_lat = 111320.0
+            meters_per_deg_lon = 111320.0 * math.cos(math.radians(self._pos_lat))
+            self._pos_lat += (distance_increment / meters_per_deg_lat) * math.cos(heading_rad)
+            self._pos_lon += (distance_increment / meters_per_deg_lon) * math.sin(heading_rad)
             self._dist_traveled_m += distance_increment
         else:
             self._read_sensors()

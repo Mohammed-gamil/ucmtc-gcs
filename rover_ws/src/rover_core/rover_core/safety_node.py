@@ -147,6 +147,8 @@ class SafetyNode(Node):
         self._obstacle_touched = False
         # Wall-clock used for collision timers (independent of sim time)
         self._collision_until: float = 0.0
+        self._last_collision_time: float = 0.0
+        self._collision_cooldown: float = 5.0
         self._last_command: dict[str, Any] = {}
 
         self._timer = self.create_timer(period_sec, self._timer_callback)
@@ -229,13 +231,17 @@ class SafetyNode(Node):
             # but disable random simulator faults.
             pass
         elif not self._estop_triggered and not self._collision_detected:
-            if speed_val > 6.0:
+            if now_wall - self._last_collision_time < self._collision_cooldown:
+                pass
+            elif speed_val > 6.0:
                 if random.random() < 0.01:
                     self._collision_detected = True
-                    self._collision_until = now_wall + 1.0
+                    self._collision_until = now_wall + 0.5
+                    self._last_collision_time = now_wall
             elif random.random() < 0.002:
                 self._collision_detected = True
-                self._collision_until = now_wall + 0.75
+                self._collision_until = now_wall + 0.4
+                self._last_collision_time = now_wall
 
         self._obstacle_touched = self._collision_detected and random.random() > 0.5
         self._border_partial = self._collision_detected and random.random() > 0.7

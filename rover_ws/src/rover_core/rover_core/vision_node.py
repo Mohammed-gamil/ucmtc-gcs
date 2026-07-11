@@ -127,10 +127,12 @@ class VisionNode(Node):
             import cv2  # type: ignore
 
             cap = cv2.VideoCapture(camera_index)
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
             if cap.isOpened():
                 self._camera_available = True
                 self._camera_capture = cap
-                self.get_logger().info(f"Camera {camera_index} opened successfully")
+                self.get_logger().info(f"Camera {camera_index} opened successfully (requested HD 1280x720)")
             else:
                 cap.release()
                 self.get_logger().warning(

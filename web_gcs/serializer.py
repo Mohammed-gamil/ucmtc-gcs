@@ -71,4 +71,4 @@ def generate_mjpeg_stream(topic_name):
                        jpeg_bytes + b'\r\n')
             except Exception as e:
                 print(f"[ERROR] Failed to extract JPEG bytes for binary stream {topic_name}: {e}")
-        time.sleep(0.033)  # check at ~30Hz
+        time.sleep(0.005)  # check at ~30Hz

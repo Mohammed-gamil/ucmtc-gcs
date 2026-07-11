@@ -149,7 +149,7 @@
             <!-- Position & Waypoint card -->
             <div class="panel panel-cyan">
                 <div class="ph">
-                    <div class="ph-title">POSITION</div>
+                    <div class="ph-title">POSITION & TASK STATUS</div>
                 </div>
                 <div class="pb">
                     <div class="position-display">
@@ -160,6 +160,17 @@
                         <span class="stat-lbl">WAYPOINT STATUS</span>
                         <div class="wp-chip-wrap">
                             <span class="wp-val" id="nav-waypoint">WP 0 (IDLE)</span>
+                        </div>
+                    </div>
+                    <!-- Mission & Arm Status Rows -->
+                    <div class="stat-rows" style="margin-top: 10px; border-top: 1px solid var(--border-dim); padding-top: 8px;">
+                        <div class="stat-row">
+                            <span class="stat-lbl">MISSION PHASE</span>
+                            <span class="stat-val" id="nav-mission-phase">IDLE</span>
+                        </div>
+                        <div class="stat-row">
+                            <span class="stat-lbl">ARM STATUS</span>
+                            <span class="stat-val" id="nav-arm-status">STOWED</span>
                         </div>
                     </div>
                 </div>
@@ -232,6 +243,7 @@
                         <div class="telemetry-pulse" id="telem-pulse"></div>
 
                         <canvas id="video-hud-canvas"></canvas>
+                        <img id="camera-stream-hidden" style="display: none;" src="rover_camera_feed.jpg" alt="Hidden Stream Source">
 
                         <!-- Bounded overlays -->
                         <div class="hud-badge-tl" id="camera-id-badge">CAM_01</div>
@@ -247,6 +259,7 @@
                         <button id="btn-toggle-hud" class="btn-filter">HUD MASK</button>
                         <button id="btn-toggle-thermal" class="btn-filter">IR THERMAL</button>
                         <button id="btn-toggle-noise" class="btn-filter">STATIC FILT</button>
+                        <button id="btn-toggle-cam-topic" class="btn-filter" style="border-color: var(--amber); color: var(--amber);">STREAM: COMPRESSED</button>
                     </div>
 
                     <!-- Row of Subsystems (Mission Simulator & Global Team Mesh side-by-side) -->

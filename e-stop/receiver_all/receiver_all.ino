@@ -58,6 +58,8 @@ bool serialStopActive = false;
 int leftMotorSpeed = 0;
 int rightMotorSpeed = 0;
 
+unsigned long lastCommandTime = 0;
+
 // Forces every controlled pin to its safe state in one shot.
 void forceAllSafe() {
   for (uint8_t i = 0; i < NUM_OUTPUTS; i++) {
@@ -69,8 +71,6 @@ void onDataRecv(const esp_now_recv_info_t *info, const uint8_t *data, int len) {
   memcpy(&incomingData, data, sizeof(incomingData));
   lastReceiveTime = millis();
   haveData = true;
-  Serial.print("Received wireless - stopped: ");
-  Serial.println(incomingData.stopped);
 }
 
 void setup() {
@@ -106,42 +106,41 @@ void loop() {
         serialStopActive = true;
         leftMotorSpeed = 0;
         rightMotorSpeed = 0;
-        Serial.println("ACK: ESTOP");
       }
       else if (input.startsWith("R")) {
         serialStopActive = false;
-        Serial.println("ACK: RESUME");
+        lastCommandTime = millis();
       }
       else if (input.startsWith("D,")) {
-        // Parse drive command: D,left_speed,right_speed (range -255 to 255)
         int firstComma = input.indexOf(',');
         int secondComma = input.indexOf(',', firstComma + 1);
         if (firstComma != -1 && secondComma != -1) {
           leftMotorSpeed = input.substring(firstComma + 1, secondComma).toInt();
           rightMotorSpeed = input.substring(secondComma + 1).toInt();
-          Serial.print("ACK: DRIVE L=");
-          Serial.print(leftMotorSpeed);
-          Serial.print(" R=");
-          Serial.println(rightMotorSpeed);
+          lastCommandTime = millis();
         }
       }
     }
   }
 
+  // Serial link timeout failsafe
+  if (millis() - lastCommandTime > LINK_TIMEOUT) {
+    leftMotorSpeed = 0;
+    rightMotorSpeed = 0;
+  }
+
   bool linkLost   = (millis() - lastReceiveTime) > LINK_TIMEOUT;
-  // Combine wireless transmitter E-stop with software serial E-stop
   bool shouldStop = (!haveData) || linkLost || incomingData.stopped || serialStopActive;
 
   if (shouldStop) {
     forceAllSafe();
     leftMotorSpeed = 0;
     rightMotorSpeed = 0;
-    return;                 // skip motor driving entirely
+    return;
   }
 
   // --- Normal Operation: Drive Cytron Motor Driver ---
-  
-  // Left Motor
+
   if (leftMotorSpeed >= 0) {
     digitalWrite(L_DIR_PIN, HIGH);
     analogWrite(L_PWM_PIN, leftMotorSpeed);
@@ -150,7 +149,6 @@ void loop() {
     analogWrite(L_PWM_PIN, abs(leftMotorSpeed));
   }
 
-  // Right Motor
   if (rightMotorSpeed >= 0) {
     digitalWrite(R_DIR_PIN, HIGH);
     analogWrite(R_PWM_PIN, rightMotorSpeed);

@@ -176,6 +176,7 @@
 
             <!-- SSE Connection Status in Topbar -->
             <div class="conn" style="display: flex; align-items: center; gap: 8px;">
+                <button id="btn-toggle-cam-topic" class="btn-filter" style="border-color: var(--amber); color: var(--amber); margin-right: 4px; font-size: 10px; padding: 4px 10px; height: auto;">STREAM: COMPRESSED</button>
                 <div class="status-pill" id="statusPill" style="display: flex; align-items: center; gap: 6px; font-size: 10px; font-family: var(--font-mono); border: 1px solid var(--border-dim); border-radius: 14px; padding: 4px 10px; background: var(--bg-void);">
                     <span class="chip-dot d-offline" id="statusDot"></span>
                     <span id="statusText" style="text-transform: uppercase;">offline</span>
@@ -390,6 +391,54 @@
             }
         }, 1000);
 
+        function updateCamTopicButtonState(path) {
+            const btn = $('btn-toggle-cam-topic');
+            if (!btn) return;
+            if (path === "/img") {
+                btn.textContent = "STREAM: RAW IMAGE";
+                btn.style.borderColor = "var(--cyan)";
+                btn.style.color = "var(--cyan)";
+            } else {
+                btn.textContent = "STREAM: COMPRESSED";
+                btn.style.borderColor = "var(--amber)";
+                btn.style.color = "var(--amber)";
+            }
+            activeTopicLabel.textContent = path;
+            activeTopicLabelVal.textContent = path;
+        }
+
+        $('btn-toggle-cam-topic')?.addEventListener("click", async (e) => {
+            e.preventDefault();
+            const newPath = (cameraTopicPath === "/rgb/image_raw/compressed") ? "/img" : "/rgb/image_raw/compressed";
+            
+            try {
+                const configRes = await fetch("/api/config/topics");
+                if (configRes.ok) {
+                    const config = await configRes.json();
+                    if (!config["image_recognition"]) {
+                        config["image_recognition"] = { label: "Image Recognition", path: "/rgb/image_raw/compressed" };
+                    }
+                    config["image_recognition"].path = newPath;
+                    
+                    const postRes = await fetch("/api/config/topics", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify(config)
+                    });
+                    
+                    if (postRes.ok) {
+                        cameraTopicPath = newPath;
+                        updateCamTopicButtonState(newPath);
+                        startMJPEGStream(); // Re-trigger the stream!
+                    }
+                }
+            } catch (err) {
+                console.error("Error toggling camera topic:", err);
+            }
+        });
+
         async function fetchCameraTopic() {
             try {
                 const response = await fetch('/api/config/topics');
@@ -397,13 +446,12 @@
                     const config = await response.json();
                     if (config.image_recognition && config.image_recognition.path) {
                         cameraTopicPath = config.image_recognition.path;
-                        activeTopicLabel.textContent = cameraTopicPath;
-                        activeTopicLabelVal.textContent = cameraTopicPath;
                     }
                 }
             } catch (e) {
                 console.error("Failed to fetch camera topic config", e);
             } finally {
+                updateCamTopicButtonState(cameraTopicPath);
                 log('MJPEG Camera Uplink initialised.');
                 startMJPEGStream();
             }

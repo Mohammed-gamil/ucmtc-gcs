@@ -1,0 +1,74 @@
+{
+  "motor_control": {
+    "label": "Motor Control",
+    "path": "/rover/commands/motor"
+  },
+  "lane_detection": {
+    "label": "Lane Detection",
+    "path": "/rover/sensors/lane"
+  },
+  "obstacle_avoidance": {
+    "label": "Obstacle Avoidance",
+    "path": "/scan"
+  },
+  "waypoint_navigator": {
+    "label": "Waypoint Navigator",
+    "path": "/rover/commands/nav"
+  },
+  "image_recognition": {
+    "label": "Image Recognition",
+    "path": "/rgb/image_raw/compressed"
+  },
+  "telemetry_aggregator": {
+    "label": "Telemetry Aggregator",
+    "path": "/rover/telemetry"
+  },
+  "telemetry_nav": {
+    "label": "Telemetry Nav",
+    "path": "/rover/telemetry/nav"
+  },
+  "telemetry_safety": {
+    "label": "Telemetry Safety",
+    "path": "/rover/telemetry/safety"
+  },
+  "telemetry_control": {
+    "label": "Telemetry Control",
+    "path": "/rover/telemetry/control"
+  },
+  "telemetry_vision": {
+    "label": "Telemetry Vision",
+    "path": "/rover/telemetry/vision"
+  },
+  "imu_accel": {
+    "label": "IMU ACCEL",
+    "path": "/imu"
+  },
+  "odom_coord": {
+    "label": "ODOM COORD",
+    "path": "/odom"
+  },
+  "cmd_vel_echo": {
+    "label": "CMD_VEL ECHO",
+    "path": "/cmd_vel"
+  },
+  "gps_fix": {
+    "label": "GPS /FIX",
+    "path": "/gps"
+  },
+  "battery_state": {
+    "label": "BATTERY STATE",
+    "path": "/battery_state"
+  },
+  "mission_phase": {
+    "label": "Mission Phase",
+    "path": "/mission_phase"
+  },
+  "arm_status": {
+    "label": "Arm Status",
+    "path": "/arm_status"
+  },
+  "speed_limit": {
+    "label": "Speed Limit",
+    "path": "/speed_limit"
+  }
+}

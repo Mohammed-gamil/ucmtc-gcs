@@ -195,7 +195,18 @@ def my_telemetry_update_hook(name, data, timestamp):
             }
             
         elif name == "/rover/telemetry":
+            mission_phase = latest.get("Navigation", {}).get("mission_phase")
+            speed_limit = latest.get("Navigation", {}).get("speed_limit")
+            arm_status = latest.get("Safety", {}).get("arm_status")
+            
             latest.update(data)
+            
+            if mission_phase is not None:
+                latest.setdefault("Navigation", {})["mission_phase"] = mission_phase
+            if speed_limit is not None:
+                latest.setdefault("Navigation", {})["speed_limit"] = speed_limit
+            if arm_status is not None:
+                latest.setdefault("Safety", {})["arm_status"] = arm_status
 
         elif name == "/scan":
             try:
@@ -248,6 +259,7 @@ tr.TELEMETRY_UPDATE_HOOK = my_telemetry_update_hook
 
 def my_drive_command_hook(command):
     action = command.get("action")
+    print(f"[WS COMMAND] Received: {command}")
     
     global sim_estop_triggered
     if action == "estop":
@@ -256,15 +268,22 @@ def my_drive_command_hook(command):
         sim_estop_triggered = False
 
     if action == "drive":
-        speed = float(command.get("speed_kmh", 0.0))
-        heading = float(command.get("heading_deg", 0.0))
-        throttle = float(command.get("throttle_pct", 0.0))
-        
+        try:
+            speed = float(command.get("speed_kmh", 0.0))
+            heading = float(command.get("heading_deg", 0.0))
+            throttle = float(command.get("throttle_pct", 0.0))
+        except (TypeError, ValueError) as e:
+            print(f"[WS COMMAND ERROR] Parsing error: {e} in {command}")
+            raise
+
         if not (0.0 <= speed <= 15.0):
+            print(f"[WS COMMAND ERROR] Speed out of bounds: {speed}")
             raise ValueError("Speed out of bounds [0, 15]")
         if not (0.0 <= heading <= 360.0):
+            print(f"[WS COMMAND ERROR] Heading out of bounds: {heading}")
             raise ValueError("Heading out of bounds [0, 360]")
         if not (0.0 <= throttle <= 1.0):
+            print(f"[WS COMMAND ERROR] Throttle out of bounds: {throttle}")
             raise ValueError("Throttle out of bounds [0, 1]")
 
         if cmd_vel_publisher:
@@ -319,16 +338,20 @@ def events():
                 last_update = telemetry_state["last_update"]
             
             # Only push if there's new data or every 1 second to keep connection alive
-            if latest and (last_update > last_sent_time or time.time() - last_sent_time > 1.0):
+            if last_update > last_sent_time or time.time() - last_sent_time > 1.0:
                 connector = get_global_connector()
                 peers_snapshot = connector.get_peers_snapshot()
 
+                with data_lock:
+                    camera_frame = telemetry_state.get("camera_frame")
+
                 payload = json.dumps({
                     "telemetry": latest,
-                    "connected": (time.time() - last_update) < 2.0,
+                    "connected": latest is not None and (time.time() - last_update) < 2.0,
                     "peers": peers_snapshot,
                     "peer_count": connector.peer_count,
                     "peers_connected": connector.connected_count,
+                    "camera_frame": camera_frame,
                 })
                 yield f"data: {payload}\n\n"
                 last_sent_time = time.time()
@@ -965,7 +988,7 @@ class GCSWebHandler(BaseHTTPRequestHandler):
                         except Exception:
                             pass
                     
-                    time.sleep(0.04)
+                    time.sleep(0.005)
             except (ConnectionResetError, BrokenPipeError):
                 return
             except Exception:
@@ -1304,12 +1327,51 @@ class WebGCSBridgeNode(Node):
             self.telemetry_callback,
             RELIABLE_QOS,
         )
+        self._mission_sub = self.create_subscription(
+            String, "/mission_phase", self.mission_callback, RELIABLE_QOS
+        )
+        try:
+            from std_msgs.msg import Bool
+            self._arm_sub = self.create_subscription(
+                Bool, "/arm_status", self.arm_callback, RELIABLE_QOS
+            )
+        except Exception:
+            self._arm_sub = self.create_subscription(
+                String, "/arm_status", self.arm_callback, RELIABLE_QOS
+            )
+        self._speed_limit_sub = None
+        try:
+            from nav2_msgs.msg import SpeedLimit
+            self._speed_limit_sub = self.create_subscription(
+                SpeedLimit, "/speed_limit", self.speed_limit_callback, RELIABLE_QOS
+            )
+        except Exception:
+            try:
+                from std_msgs.msg import Float32
+                self._speed_limit_sub = self.create_subscription(
+                    Float32, "/speed_limit", self.speed_limit_callback, RELIABLE_QOS
+                )
+            except Exception:
+                pass
         self.get_logger().info("Web GCS Bridge subscriber/publisher initialized.")
 
     def telemetry_callback(self, msg):
         try:
             payload = json.loads(msg.data)
             with data_lock:
+                old = telemetry_state.get("latest")
+                if old and isinstance(old, dict):
+                    if "Navigation" in old and isinstance(old["Navigation"], dict):
+                        nav = payload.setdefault("Navigation", {})
+                        if "mission_phase" in old["Navigation"]:
+                            nav["mission_phase"] = old["Navigation"]["mission_phase"]
+                        if "speed_limit" in old["Navigation"]:
+                            nav["speed_limit"] = old["Navigation"]["speed_limit"]
+                    if "Safety" in old and isinstance(old["Safety"], dict):
+                        safety = payload.setdefault("Safety", {})
+                        if "arm_status" in old["Safety"]:
+                            safety["arm_status"] = old["Safety"]["arm_status"]
+                
                 telemetry_state["latest"] = payload
                 telemetry_state["last_update"] = time.time()
             connector = get_global_connector()
@@ -1333,13 +1395,55 @@ class WebGCSBridgeNode(Node):
         pass
 
     def mission_callback(self, msg):
-        pass
+        try:
+            with data_lock:
+                if telemetry_state["latest"] is None or not isinstance(telemetry_state["latest"], dict):
+                    telemetry_state["latest"] = {
+                        "Sensors": {}, "Odom": {}, "CmdVelEcho": {}, "GPS": {}, "Battery": {}, "Jetson": {}, "ROS": {}, "Navigation": {}, "Safety": {}
+                    }
+                latest = telemetry_state["latest"]
+                if "Navigation" not in latest:
+                    latest["Navigation"] = {}
+                latest["Navigation"]["mission_phase"] = str(msg.data)
+                telemetry_state["last_update"] = time.time()
+        except Exception:
+            pass
 
     def arm_callback(self, msg):
-        pass
+        try:
+            with data_lock:
+                if telemetry_state["latest"] is None or not isinstance(telemetry_state["latest"], dict):
+                    telemetry_state["latest"] = {
+                        "Sensors": {}, "Odom": {}, "CmdVelEcho": {}, "GPS": {}, "Battery": {}, "Jetson": {}, "ROS": {}, "Navigation": {}, "Safety": {}
+                    }
+                latest = telemetry_state["latest"]
+                if "Safety" not in latest:
+                    latest["Safety"] = {}
+                if hasattr(msg, "data"):
+                    latest["Safety"]["arm_status"] = str(msg.data)
+                else:
+                    latest["Safety"]["arm_status"] = str(msg)
+                telemetry_state["last_update"] = time.time()
+        except Exception:
+            pass
 
     def speed_limit_callback(self, msg):
-        pass
+        try:
+            with data_lock:
+                if telemetry_state["latest"] is None or not isinstance(telemetry_state["latest"], dict):
+                    telemetry_state["latest"] = {
+                        "Sensors": {}, "Odom": {}, "CmdVelEcho": {}, "GPS": {}, "Battery": {}, "Jetson": {}, "ROS": {}, "Navigation": {}, "Safety": {}
+                    }
+                latest = telemetry_state["latest"]
+                if "Navigation" not in latest:
+                    latest["Navigation"] = {}
+                if hasattr(msg, "speed_limit"):
+                    latest["Navigation"]["speed_limit"] = float(msg.speed_limit)
+                elif hasattr(msg, "data"):
+                    latest["Navigation"]["speed_limit"] = float(msg.data)
+                telemetry_state["last_update"] = time.time()
+        except Exception:
+            pass
 
     def imu_callback(self, msg):
         try:
@@ -1596,7 +1700,7 @@ def camera_frame_process_worker():
                     last_update_time = last_update
         except Exception:
             pass
-        time.sleep(0.04)
+        time.sleep(0.002)
 
 
 def run_http_server():
@@ -1759,7 +1863,9 @@ def main(args=None):
                             "dist_traveled_m": round(dist, 1),
                             "wp_current": int(tick / 40) % 10,
                             "wp_error_m": round(abs(math.sin(tick / 15.0)) * 2.0, 2),
-                            "wp_status": "idle" if speed <= 0.0 else "navigating"
+                            "wp_status": "idle" if speed <= 0.0 else "navigating",
+                            "mission_phase": random.choice(["MAPPING", "AUTONOMY", "TELEOP", "IDLE", "RETURN_TO_BASE"]) if (tick % 200 == 0 or tick == 1) else (telemetry_state["latest"]["Navigation"].get("mission_phase", "IDLE") if (telemetry_state["latest"] and "Navigation" in telemetry_state["latest"]) else "IDLE"),
+                            "speed_limit": float(random.choice([2.5, 5.0, 10.0, 15.0])) if (tick % 200 == 0 or tick == 1) else (telemetry_state["latest"]["Navigation"].get("speed_limit", 15.0) if (telemetry_state["latest"] and "Navigation" in telemetry_state["latest"]) else 15.0),
                         },
                         "Safety": {
                             "mode": "estop" if sim_estop_triggered else ("monitoring" if speed > 0.0 else "idle"),
@@ -1771,7 +1877,8 @@ def main(args=None):
                             "collision_detected": False,
                             "border_crossed": False,
                             "border_partial": False,
-                            "obstacle_touched": False
+                            "obstacle_touched": False,
+                            "arm_status": random.choice(["STOWED", "DEPLOYING", "ACTIVE", "RETRACTING", "ERROR"]) if (tick % 200 == 0 or tick == 1) else (telemetry_state["latest"]["Safety"].get("arm_status", "STOWED") if (telemetry_state["latest"] and "Safety" in telemetry_state["latest"]) else "STOWED"),
                         },
                         "Vision": {
                             "img_confidence": round(random.uniform(0.6, 0.95), 2),
