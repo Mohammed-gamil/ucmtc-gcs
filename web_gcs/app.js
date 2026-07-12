@@ -139,8 +139,12 @@ function timeAgo(timestamp) {
 // ═══════════════════════════════════════════════════
 
 let previousPeers = [];
+let previousPeersJson = "";
 
 function renderPeerList(peers) {
+    const peersJson = JSON.stringify(peers);
+    if (peersJson === previousPeersJson) return;
+    previousPeersJson = peersJson;
     const connectedCount = peers ? peers.filter(p => p.status === "connected").length : 0;
     const totalCount = peers ? peers.length : 0;
 
@@ -948,6 +952,8 @@ function renderAllTelemetry() {
 setInterval(renderAllTelemetry, 100);
 
 
+let activeCommandAbortController = null;
+
 // POST dispatch command
 async function sendCommand(command) {
     if (!commandResultLbl) return;
@@ -974,6 +980,13 @@ async function sendCommand(command) {
         return;
     }
 
+    // Abort in-flight HTTP request to prevent connection queuing
+    if (activeCommandAbortController) {
+        activeCommandAbortController.abort();
+    }
+    activeCommandAbortController = new AbortController();
+    const { signal } = activeCommandAbortController;
+
     // HTTP POST fallback
     try {
         const response = await fetch("/command", {
@@ -981,7 +994,8 @@ async function sendCommand(command) {
             headers: {
                 "Content-Type": "application/json"
             },
-            body: JSON.stringify(command)
+            body: JSON.stringify(command),
+            signal
         });
         if (!response.ok) {
             const text = await response.text();
@@ -998,6 +1012,10 @@ async function sendCommand(command) {
             commandResultLbl.style.color = "var(--red-alert)";
         }
     } catch (err) {
+        if (err.name === "AbortError") {
+            // Silently swallow aborted commands as they are superseded by newer commands
+            return;
+        }
         commandResultLbl.textContent = `🔌 Network Error: ${err.message}`;
         commandResultLbl.style.color = "var(--red-alert)";
     }
@@ -2086,12 +2104,13 @@ updateSshStatus();
 // ─── SSE Connection with auto-reconnect ───
 let _sseRetryDelay = 1000;  // ms, doubles on each failure, max 16s
 let _sseActive = false;
+let eventSource = null;
 
 function connectSSE() {
     if (_sseActive) return;
     _sseActive = true;
 
-    const eventSource = new EventSource("/events");
+    eventSource = new EventSource("/events");
 
     eventSource.onopen = () => {
         _sseRetryDelay = 1000;  // reset on successful connect
@@ -2101,11 +2120,7 @@ function connectSSE() {
     eventSource.onmessage = (event) => {
         try {
             const data = JSON.parse(event.data);
-            if (data.camera_frame) {
-                if (cameraImage.src !== "data:image/jpeg;base64," + data.camera_frame) {
-                    cameraImage.src = "data:image/jpeg;base64," + data.camera_frame;
-                }
-            } else if (data.connected) {
+            if (data.connected) {
                 const camPath = (gcsTopics && gcsTopics["image_recognition"] && gcsTopics["image_recognition"].path) ? gcsTopics["image_recognition"].path : "/rgb/image_raw/compressed";
                 const streamUrl = `/api/topics${camPath}/stream`;
                 if (!cameraImage.src.endsWith(streamUrl)) {
@@ -2863,7 +2878,8 @@ function handleTeleopTick() {
 
     // Throttle / Brake / Drift logic
     if (handbrake) {
-        currentTeleopSpeed = 0.0;
+        // Need for Speed drift physics: decelerate smoothly, do not drop to 0 instantly
+        currentTeleopSpeed = Math.max(0.5, currentTeleopSpeed - 0.15);
         active = true;
     } else {
         if (driveForward) {
@@ -2888,16 +2904,9 @@ function handleTeleopTick() {
         ? latestTelemetryPayload.Navigation.heading_deg
         : parseFloat(document.getElementById("ctrl-heading")?.value || "0.0");
 
-    // If we are not actively steering, keep target heading synced to the actual heading with rate limiting
+    // If we are not actively steering, snap target heading immediately to actual heading (auto-centering)
     if (!steerLeft && !steerRight) {
-        if (keyboardTargetHeading === null) {
-            keyboardTargetHeading = currentActualHeading;
-        } else {
-            const diff = ((currentActualHeading - keyboardTargetHeading + 540) % 360) - 180;
-            // Smoothly interpolate towards actual heading by max 1.5 degrees per tick (filters out sensor spikes)
-            const step = Math.max(-1.5, Math.min(1.5, diff * 0.15));
-            keyboardTargetHeading = (keyboardTargetHeading + step + 360) % 360;
-        }
+        keyboardTargetHeading = currentActualHeading;
     } else {
         // We are steering! If keyboardTargetHeading was null, initialize it to actual heading
         if (keyboardTargetHeading === null) {
@@ -2905,12 +2914,13 @@ function handleTeleopTick() {
         }
         
         // Smooth steering: turn target heading continuously when steer keys are held
-        // At 50ms tick rate, 2.5 degrees/tick matches 50 deg/sec rotation
+        // Boost steering speed if handbrake is engaged (drifting)
+        const steerRate = handbrake ? 5.0 : 2.5;
         if (steerLeft) {
-            keyboardTargetHeading -= 2.5;
+            keyboardTargetHeading -= steerRate;
             active = true;
         } else if (steerRight) {
-            keyboardTargetHeading += 2.5;
+            keyboardTargetHeading += steerRate;
             active = true;
         }
         keyboardTargetHeading = (keyboardTargetHeading + 360.0) % 360.0;
@@ -2928,8 +2938,9 @@ function handleTeleopTick() {
             headingBubble.textContent = Math.round(keyboardTargetHeading) + "°";
         }
 
+        const isDrifting = handbrake && currentTeleopSpeed > 0.1;
         sendCommand({
-            action: handbrake ? "stop" : "drive",
+            action: isDrifting ? "drive" : (handbrake ? "stop" : "drive"),
             speed_kmh: currentTeleopSpeed,
             heading_deg: keyboardTargetHeading,
             throttle_pct: handbrake ? 0.0 : throttle,
@@ -3069,7 +3080,8 @@ function handleGamepadTick() {
 
     // Need for Speed physics
     if (handbrake) {
-        currentTeleopSpeed = 0.0;
+        // Need for Speed drift physics: decelerate smoothly, do not drop to 0 instantly
+        currentTeleopSpeed = Math.max(0.5, currentTeleopSpeed - 0.15);
     } else {
         if (r2 > 0.1) {
             // Smooth acceleration based on trigger pressure
@@ -3090,22 +3102,17 @@ function handleGamepadTick() {
         ? latestTelemetryPayload.Navigation.heading_deg
         : parseFloat(document.getElementById("ctrl-heading")?.value || "0.0");
 
-    // If Left Joystick is centered, keep target heading synced to the actual heading with rate limiting
+    // If Left Joystick is centered, snap target heading immediately to actual heading (auto-centering)
     if (Math.abs(leftX) <= 0.05) {
-        if (gamepadTargetHeading === null) {
-            gamepadTargetHeading = currentActualHeading;
-        } else {
-            const diff = ((currentActualHeading - gamepadTargetHeading + 540) % 360) - 180;
-            // Smoothly interpolate towards actual heading by max 1.5 degrees per tick (filters out sensor spikes)
-            const step = Math.max(-1.5, Math.min(1.5, diff * 0.15));
-            gamepadTargetHeading = (gamepadTargetHeading + step + 360) % 360;
-        }
+        gamepadTargetHeading = currentActualHeading;
     } else {
         if (gamepadTargetHeading === null) {
             gamepadTargetHeading = currentActualHeading;
         }
         // Steering turn rate (dt = 50ms)
-        gamepadTargetHeading += leftX * 2.5; // Turn smoothly by up to 50 deg/sec
+        // Boost steering speed if handbrake is engaged (drifting)
+        const steerRate = handbrake ? 5.0 : 2.5;
+        gamepadTargetHeading += leftX * steerRate; // Turn smoothly by up to 100 deg/sec
         gamepadTargetHeading = (gamepadTargetHeading + 360.0) % 360.0;
     }
 
@@ -3144,8 +3151,9 @@ function handleGamepadTick() {
                 resultLbl.style.color = "var(--red-alert)";
             }
         } else {
+            const isDrifting = handbrake && currentTeleopSpeed > 0.1;
             sendCommand({
-                action: handbrake ? "stop" : "drive",
+                action: isDrifting ? "drive" : (handbrake ? "stop" : "drive"),
                 speed_kmh: Math.round(currentTeleopSpeed * 100) / 100,
                 heading_deg: gamepadTargetHeading,
                 throttle_pct: Math.round((handbrake ? 0.0 : activeThrottle) * 100) / 100,
@@ -3760,6 +3768,39 @@ socket.on("topic_update", (payload) => {
         widget.update(payload.data);
     }
 });
+
+// Binary MessagePack telemetry update listener
+socket.on("telemetry_binary_update", (binaryData) => {
+    try {
+        // Decode messagepack binary payload
+        const data = msgpack.decode(new Uint8Array(binaryData));
+        
+        // Deactivate SSE if it is running because we are successfully receiving binary updates
+        if (_sseActive && eventSource) {
+            console.log("🎮 Successfully upgraded to binary WebSockets. Closing SSE...");
+            eventSource.close();
+            eventSource = null;
+            _sseActive = false;
+        }
+        
+        // Update the GCS dashboard
+        updateDashboard(data.telemetry, data.connected, data.peers, data.simulation_mode);
+    } catch (err) {
+        console.error("Failed to decode binary telemetry payload:", err);
+    }
+});
+
+// Handle WebSocket connection events to coordinate SSE fallback
+if (typeof io !== "undefined" && socket) {
+    socket.on("connect", () => {
+        console.log("🎮 WebSocket connection established.");
+    });
+    
+    socket.on("disconnect", () => {
+        console.warn("🔌 WebSocket disconnected. Reverting to Server-Sent Events (SSE) telemetry fallback...");
+        connectSSE();
+    });
+}
 
 // Trigger registry fetch on boot
 document.addEventListener("DOMContentLoaded", () => {
