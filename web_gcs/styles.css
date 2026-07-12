@@ -166,6 +166,42 @@ body {
     font-weight: 700;
 }
 
+.topbar-domain-wrap {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.topbar-domain-input {
+    width: 38px;
+    height: 18px;
+    background: var(--bg-panel);
+    border: 1px solid var(--border-dim);
+    color: var(--cyan);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 0;
+    border-radius: 3px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.topbar-domain-input:focus {
+    border-color: var(--cyan);
+    box-shadow: 0 0 4px rgba(0, 212, 255, 0.4);
+}
+
+.topbar-domain-input::-webkit-outer-spin-button,
+.topbar-domain-input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.topbar-domain-input {
+    -moz-appearance: textfield;
+}
+
 .latency-readout {
     font-family: var(--font-mono);
     font-size: 11px;

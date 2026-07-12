@@ -1,6 +1,6 @@
 {
-  "domain": "0",
+  "domain": "32",
   "discovery": "SUBNET",
-  "peer_id": "gcs-operator",
-  "local_ip": "192.168.128.244"
+  "peer_id": "/cmd_vel",
+  "local_ip": "192.168.1.3"
 }

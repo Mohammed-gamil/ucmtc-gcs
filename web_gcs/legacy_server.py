@@ -322,7 +322,7 @@ class GCSWebHandler(BaseHTTPRequestHandler):
                 port = int(peer_data.get("port", 8090))
                 role = peer_data.get("role", "rover")
                 team_name = peer_data.get("team_name", "")
-                ros_domain_id = int(peer_data.get("ros_domain_id", 0))
+                ros_domain_id = int(peer_data.get("ros_domain_id", 32))
 
                 if not peer_id or not ip:
                     raise ValueError("peer_id and ip_address are required")

@@ -244,7 +244,7 @@ def post_peers():
         port = int(peer_data.get("port", 8090))
         role = peer_data.get("role", "rover")
         team_name = peer_data.get("team_name", "")
-        ros_domain_id = int(peer_data.get("ros_domain_id", 0))
+        ros_domain_id = int(peer_data.get("ros_domain_id", 32))
 
         if not peer_id or not ip:
             raise ValueError("peer_id and ip_address are required")
@@ -442,7 +442,7 @@ def get_api_config_network():
         except Exception:
             pass
     return jsonify({
-        "domain": "0",
+        "domain": "32",
         "discovery": "SUBNET",
         "peer_id": "gcs-operator",
         "local_ip": "127.0.0.1"
@@ -454,7 +454,7 @@ def post_api_config_network():
     try:
         data = request.get_json(force=True)
         config = {
-            "domain": str(data.get("domain", "0")),
+            "domain": str(data.get("domain", "32")),
             "discovery": str(data.get("discovery", "SUBNET")),
             "peer_id": str(data.get("peer_id", "gcs-operator")),
             "local_ip": str(data.get("local_ip", "127.0.0.1"))

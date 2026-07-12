@@ -61,6 +61,7 @@
   { "name": "/robot_description", "type": "std_msgs/msg/String" },
   { "name": "/rosout", "type": "rcl_interfaces/msg/Log" },
   { "name": "/rover/commands/motor", "type": "std_msgs/msg/String" },
+  { "name": "/rover/hud", "type": "std_msgs/msg/String" },
   { "name": "/rover/telemetry", "type": "std_msgs/msg/String" },
   { "name": "/scan", "type": "sensor_msgs/msg/LaserScan", "transport": "throttled_json" },
   { "name": "/scan_filtered", "type": "sensor_msgs/msg/LaserScan", "transport": "throttled_json" },
@@ -70,5 +71,6 @@
   { "name": "/tf_static", "type": "tf2_msgs/msg/TFMessage" },
   { "name": "/transformed_global_plan", "type": "nav_msgs/msg/Path" },
   { "name": "/velocity_smoother/transition_event", "type": "lifecycle_msgs/msg/TransitionEvent" },
-  { "name": "/waypoint_follower/transition_event", "type": "lifecycle_msgs/msg/TransitionEvent" }
+  { "name": "/waypoint_follower/transition_event", "type": "lifecycle_msgs/msg/TransitionEvent" },
+  { "name": "/wheel_cmds", "type": "std_msgs/msg/Float32MultiArray" }
 ]

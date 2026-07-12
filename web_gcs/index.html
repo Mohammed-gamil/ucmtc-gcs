@@ -55,6 +55,10 @@
                 <span class="met-label">MET:</span>
                 <span class="met-val" id="mission-timer">00:00:00</span>
             </div>
+            <div class="topbar-domain-wrap" title="ROS Domain ID">
+                <span class="met-label">DOMAIN:</span>
+                <input type="number" id="topbar-domain-input" class="topbar-domain-input" value="32" min="0" max="232">
+            </div>
             <div class="latency-readout" id="rtt-lbl">-- ms</div>
             <div class="connection-dots">
                 <span class="chip-dot d-offline" id="telem-dot" title="Telemetry Status"></span>
@@ -472,6 +476,33 @@
                     </div>
                 </div>
             </div>
+
+            <!-- WHEEL MOTOR COMMANDS Card -->
+            <div class="panel panel-cyan card-diagnostic" style="margin-top: 10px;">
+                <div class="ph">
+                    <div class="ph-title">WHEEL MOTOR COMMANDS</div>
+                </div>
+                <div class="pb">
+                    <div class="diag-list font-mono">
+                        <div class="diag-row">
+                            <span class="diag-lbl">Front Left (FL)</span>
+                            <span class="dv cyan" id="wheel-fl-val">0.00</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Front Right (FR)</span>
+                            <span class="dv cyan" id="wheel-fr-val">0.00</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Rear Left (RL)</span>
+                            <span class="dv cyan" id="wheel-rl-val">0.00</span>
+                        </div>
+                        <div class="diag-row">
+                            <span class="diag-lbl">Rear Right (RR)</span>
+                            <span class="dv cyan" id="wheel-rr-val">0.00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         </main>
     </div>
@@ -504,7 +535,7 @@
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                             <div class="form-row">
                                 <label for="setup-domain">ROS Domain ID</label>
-                                <input type="number" id="setup-domain" class="setup-input" value="0" min="0" max="232">
+                                <input type="number" id="setup-domain" class="setup-input" value="32" min="0" max="232">
                             </div>
                             <div class="form-row">
                                 <label for="setup-discovery">Discovery Range</label>

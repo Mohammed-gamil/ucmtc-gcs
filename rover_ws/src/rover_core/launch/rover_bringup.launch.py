@@ -23,6 +23,7 @@ from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from launch.substitutions import PathJoinSubstitution
+from launch.conditions import IfCondition, UnlessCondition
 
 
 def generate_launch_description():
@@ -49,11 +50,17 @@ def generate_launch_description():
         default_value="true",
         description="Whether to run in simulation mode (true) or talk to physical hardware (false)",
     )
+    use_racer_teleop_arg = DeclareLaunchArgument(
+        "use_racer_teleop",
+        default_value="false",
+        description="Whether to run the PS5 NFS Racer teleop stack (true) or standard motor_control (false)",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     log_level = LaunchConfiguration("log_level")
     cmd_vel_topic = LaunchConfiguration("cmd_vel_topic")
     use_simulation = LaunchConfiguration("use_simulation")
+    use_racer_teleop = LaunchConfiguration("use_racer_teleop")
 
     # ── Shared parameter file ─────────────────────────────────────────────────
     # FindPackageShare resolves to the installed share directory, avoiding
@@ -103,11 +110,54 @@ def generate_launch_description():
         executable="motor_control_node",
         name="motor_control_node",
         output="screen",
+        condition=UnlessCondition(use_racer_teleop),
         parameters=[
             params_file,
             {"use_sim_time": use_sim_time},
             {"use_simulation": use_simulation},
             {"cmd_vel_topic": cmd_vel_topic},
+        ],
+        arguments=["--ros-args", "--log-level", log_level],
+    )
+
+    ps5_nfs_teleop = Node(
+        package="rover_core",
+        executable="ps5_nfs_teleop",
+        name="ps5_nfs_teleop",
+        output="screen",
+        condition=IfCondition(use_racer_teleop),
+        parameters=[
+            params_file,
+            {"use_sim_time": use_sim_time},
+            {"use_simulation": use_simulation},
+        ],
+        arguments=["--ros-args", "--log-level", log_level],
+    )
+
+    cmd_vel_to_wheels = Node(
+        package="rover_core",
+        executable="cmd_vel_to_wheels",
+        name="cmd_vel_to_wheels",
+        output="screen",
+        condition=IfCondition(use_racer_teleop),
+        parameters=[
+            params_file,
+            {"use_sim_time": use_sim_time},
+            {"use_simulation": use_simulation},
+        ],
+        arguments=["--ros-args", "--log-level", log_level],
+    )
+
+    wheel_cmds_serial_bridge = Node(
+        package="rover_core",
+        executable="wheel_cmds_serial_bridge",
+        name="wheel_cmds_serial_bridge",
+        output="screen",
+        condition=IfCondition(use_racer_teleop),
+        parameters=[
+            params_file,
+            {"use_sim_time": use_sim_time},
+            {"use_simulation": use_simulation},
         ],
         arguments=["--ros-args", "--log-level", log_level],
     )
@@ -131,9 +181,13 @@ def generate_launch_description():
         log_level_arg,
         cmd_vel_topic_arg,
         use_simulation_arg,
+        use_racer_teleop_arg,
         navigation_node,
         safety_node,
         vision_node,
         motor_control_node,
+        ps5_nfs_teleop,
+        cmd_vel_to_wheels,
+        wheel_cmds_serial_bridge,
         telemetry_aggregator,
     ])

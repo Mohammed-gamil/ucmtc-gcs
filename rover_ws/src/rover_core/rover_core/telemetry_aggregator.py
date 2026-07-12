@@ -11,6 +11,7 @@ from rover_core.telemetry_utils import (
     RELIABLE_QOS,
     SAFETY_HEARTBEAT_QOS,
     SENSOR_QOS,
+    COMMAND_QOS,
     _STD_MSGS_AVAILABLE,
     BatteryState,
     Imu,
@@ -51,6 +52,12 @@ try:
     _DESCRIPTORS_AVAILABLE = True
 except ImportError:
     _DESCRIPTORS_AVAILABLE = False
+
+try:
+    from std_msgs.msg import Float32MultiArray
+    _FLOAT_ARRAY_AVAILABLE = True
+except ImportError:
+    _FLOAT_ARRAY_AVAILABLE = False
 
 
 def _float_descriptor(description: str, min_val: float, max_val: float):
@@ -164,6 +171,8 @@ class TelemetryAggregatorNode(Node):
             "uptime_sec": 0,
             "timestamp_ms": 0,
         }
+        self._hud: dict[str, Any] = {}
+        self._wheel_cmds: list[float] = [0.0, 0.0, 0.0, 0.0]
 
         # ── Standard-sensor state (initialised to None → «not received yet») ──
         self._imu_msg: Any = None
@@ -207,6 +216,13 @@ class TelemetryAggregatorNode(Node):
         self._control_subscription = self.create_subscription(
             String, control_topic, self.control_callback, RELIABLE_QOS
         )
+        self._hud_subscription = self.create_subscription(
+            String, "/rover/hud", self._hud_callback, RELIABLE_QOS
+        )
+        if _FLOAT_ARRAY_AVAILABLE:
+            self._wheel_cmds_sub = self.create_subscription(
+                Float32MultiArray, "/wheel_cmds", self._wheel_cmds_callback, COMMAND_QOS
+            )
 
         if _STD_MSGS_AVAILABLE:
             scan_topic = get_topic_path("obstacle_avoidance", "/scan")
@@ -392,6 +408,18 @@ class TelemetryAggregatorNode(Node):
             self._control = section
             self._control_last_update = self.get_clock().now()
 
+    def _hud_callback(self, msg):
+        try:
+            self._hud = json.loads(msg.data)
+        except Exception:
+            pass
+
+    def _wheel_cmds_callback(self, msg):
+        try:
+            self._wheel_cmds = [float(v) for v in msg.data]
+        except Exception:
+            pass
+
     # ── Standard ROS 2 topic callbacks ──────────────────────────────────────
 
     def _imu_callback(self, msg) -> None:
@@ -535,6 +563,8 @@ class TelemetryAggregatorNode(Node):
             "Jetson": self._sample_jetson(),
             "Communication": self._sample_communication(),
             "ROS": self._sample_ros(),
+            "HUD": self._hud,
+            "wheel_cmds": self._wheel_cmds,
         }
 
         # ── Standard ROS 2 sensor sections ────────────────────────────────────

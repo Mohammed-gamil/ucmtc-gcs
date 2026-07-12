@@ -946,6 +946,26 @@ function renderAllTelemetry() {
         }
         applyStateStyles(visionUptime, visionState.state, visionState.elapsedSec);
     }
+
+    // Update wheel commands diagnostics
+    const wheelFL = document.getElementById("wheel-fl-val");
+    const wheelFR = document.getElementById("wheel-fr-val");
+    const wheelRL = document.getElementById("wheel-rl-val");
+    const wheelRR = document.getElementById("wheel-rr-val");
+    
+    if (wheelFL && wheelFR && wheelRL && wheelRR) {
+        if (payload.wheel_cmds && payload.wheel_cmds.length >= 4) {
+            wheelFL.textContent = payload.wheel_cmds[0].toFixed(2);
+            wheelFR.textContent = payload.wheel_cmds[1].toFixed(2);
+            wheelRL.textContent = payload.wheel_cmds[2].toFixed(2);
+            wheelRR.textContent = payload.wheel_cmds[3].toFixed(2);
+        } else {
+            wheelFL.textContent = "0.00";
+            wheelFR.textContent = "0.00";
+            wheelRL.textContent = "0.00";
+            wheelRR.textContent = "0.00";
+        }
+    }
 }
 
 // Start periodic freshness updater
@@ -1337,6 +1357,7 @@ tabBtns.forEach(btn => {
 const setupInterfaceSelect = document.getElementById("setup-interface");
 const setupIpInput          = document.getElementById("setup-ip");
 const setupDomainInput      = document.getElementById("setup-domain");
+const topbarDomainInput     = document.getElementById("topbar-domain-input");
 const setupDiscoverySelect   = document.getElementById("setup-discovery");
 const setupPeerIdInput      = document.getElementById("setup-peer-id");
 const btnApplyNetwork       = document.getElementById("btn-apply-network");
@@ -1391,11 +1412,12 @@ async function loadNetworkConfig() {
         if (response.ok) {
             const config = await response.json();
             if (setupDomainInput && config.domain !== undefined) setupDomainInput.value = config.domain;
+            if (topbarDomainInput && config.domain !== undefined) topbarDomainInput.value = config.domain;
             if (setupDiscoverySelect && config.discovery !== undefined) setupDiscoverySelect.value = config.discovery;
             if (setupPeerIdInput && config.peer_id !== undefined) setupPeerIdInput.value = config.peer_id;
             if (setupIpInput && config.local_ip !== undefined) setupIpInput.value = config.local_ip;
             if (networkConfigStatus) {
-                networkConfigStatus.textContent = `Applied Config: domain=${config.domain || "0"}, discovery=${config.discovery || "SUBNET"}, peer=${config.peer_id || "gcs-operator"}`;
+                networkConfigStatus.textContent = `Applied Config: domain=${config.domain || "32"}, discovery=${config.discovery || "SUBNET"}, peer=${config.peer_id || "gcs-operator"}`;
                 networkConfigStatus.style.color = "var(--cyan)";
             }
         }
@@ -1406,7 +1428,7 @@ async function loadNetworkConfig() {
 
 if (btnApplyNetwork) {
     btnApplyNetwork.addEventListener("click", async () => {
-        const domain = setupDomainInput ? setupDomainInput.value : "0";
+        const domain = setupDomainInput ? setupDomainInput.value : "32";
         const discovery = setupDiscoverySelect ? setupDiscoverySelect.value : "SUBNET";
         const peerId = setupPeerIdInput ? setupPeerIdInput.value : "gcs-operator";
         const localIp = setupIpInput ? setupIpInput.value : "127.0.0.1";
@@ -1428,6 +1450,9 @@ if (btnApplyNetwork) {
                 })
             });
             if (response.ok) {
+                if (topbarDomainInput) {
+                    topbarDomainInput.value = domain;
+                }
                 if (networkConfigStatus) {
                     networkConfigStatus.textContent = `Applied Config: domain=${domain}, discovery=${discovery}, peer=${peerId}`;
                     networkConfigStatus.style.color = "var(--cyan)";
@@ -1450,6 +1475,22 @@ if (btnApplyNetwork) {
                 networkConfigStatus.textContent = `🔌 Network Error: ${err.message}`;
                 networkConfigStatus.style.color = "var(--red-alert)";
             }
+        }
+    });
+}
+
+if (topbarDomainInput) {
+    topbarDomainInput.addEventListener("change", () => {
+        if (setupDomainInput) {
+            setupDomainInput.value = topbarDomainInput.value;
+        }
+        if (btnApplyNetwork) {
+            btnApplyNetwork.click();
+        }
+    });
+    topbarDomainInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            topbarDomainInput.blur();
         }
     });
 }
@@ -2472,22 +2513,134 @@ function drawTacticalHUD() {
             timestampElem.textContent = `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}:${ms}`;
         }
 
-        // Draw Handbrake / Drift overlay
-        if (typeof handbrakeActive !== 'undefined' && handbrakeActive) {
-            videoCtx.save();
-            videoCtx.fillStyle = "rgba(255, 69, 0, 0.15)";
-            videoCtx.fillRect(0, 0, width, height); // flash red/orange tint
-            
-            videoCtx.strokeStyle = "rgba(255, 69, 0, 0.8)";
-            videoCtx.lineWidth = 3;
-            videoCtx.strokeRect(10, 10, width - 20, height - 20); // border flash
-            
-            videoCtx.fillStyle = "rgba(255, 69, 0, 0.9)";
-            videoCtx.font = "bold 13px monospace";
-            videoCtx.textAlign = "center";
-            videoCtx.fillText("⚡ TACTICAL DRIFT // HANDBRAKE ENGAGED ⚡", width / 2, height - 40);
-            videoCtx.restore();
+        // ─── NFS Arcade Racer HUD Overlay ───────────────────────────────
+        const hud = latestTelemetryPayload?.HUD || {};
+        const speedMps = typeof hud.speed_mps === 'number' ? hud.speed_mps : 0.0;
+        const speedKmh = speedMps * 3.6;
+        const boostMeter = typeof hud.boost_meter === 'number' ? hud.boost_meter : 1.0;
+        const driftActive = !!hud.drift_active;
+        const gear = hud.gear || "N";
+        const armed = !!hud.armed;
+
+        videoCtx.save();
+
+        // 1. Arm Status Tag (Top Center)
+        videoCtx.textAlign = "center";
+        videoCtx.font = "bold 10px monospace";
+        if (armed) {
+            videoCtx.fillStyle = "rgba(0, 255, 102, 0.85)";
+            videoCtx.fillText("🛡️ NFS_LINK: ARMED // DRIVE MODE", width / 2, 25);
+        } else {
+            videoCtx.fillStyle = "rgba(239, 68, 68, 0.85)";
+            videoCtx.fillText("⚠️ NFS_LINK: DISARMED // INACTIVE", width / 2, 25);
         }
+
+        // 2. Tactical Drift Tint (Full-screen flashing border & overlay)
+        if (driftActive || (typeof handbrakeActive !== 'undefined' && handbrakeActive)) {
+            videoCtx.fillStyle = "rgba(255, 110, 0, 0.12)";
+            videoCtx.fillRect(0, 0, width, height);
+
+            videoCtx.strokeStyle = "rgba(255, 110, 0, 0.75)";
+            videoCtx.lineWidth = 2.5;
+            videoCtx.strokeRect(8, 8, width - 16, height - 16);
+
+            // Flashing text warning
+            if (Math.floor(Date.now() / 250) % 2 === 0) {
+                videoCtx.fillStyle = "rgba(255, 110, 0, 0.95)";
+                videoCtx.font = "bold 11px monospace";
+                videoCtx.fillText("⚡ DRIFT ACTIVE // TRACTION REDUCED ⚡", width / 2, height - 95);
+            }
+        }
+
+        // 3. Digital Speedometer & Gear Indicator (Bottom Right)
+        const cx = width - 90;
+        const cy = height - 75;
+        const radius = 55;
+
+        // Circular glass background
+        videoCtx.beginPath();
+        videoCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+        videoCtx.fillStyle = "rgba(1, 3, 6, 0.65)";
+        videoCtx.strokeStyle = "rgba(0, 212, 255, 0.2)";
+        videoCtx.lineWidth = 1;
+        videoCtx.fill();
+        videoCtx.stroke();
+
+        // Speedometer Arc
+        const startAngle = Math.PI * 0.8;
+        const endAngle = Math.PI * 2.2;
+        const maxKmh = 12.0;
+        const speedPercent = Math.min(1.0, Math.abs(speedKmh) / maxKmh);
+        const currentAngle = startAngle + speedPercent * (endAngle - startAngle);
+
+        // Ring Track
+        videoCtx.beginPath();
+        videoCtx.arc(cx, cy, radius - 8, startAngle, endAngle);
+        videoCtx.strokeStyle = "rgba(28, 35, 51, 0.6)";
+        videoCtx.lineWidth = 4;
+        videoCtx.stroke();
+
+        // Active Ring Fill
+        videoCtx.beginPath();
+        videoCtx.arc(cx, cy, radius - 8, startAngle, currentAngle);
+        videoCtx.strokeStyle = driftActive ? "rgba(255, 110, 0, 0.85)" : "rgba(0, 212, 255, 0.85)";
+        videoCtx.lineWidth = 5;
+        videoCtx.stroke();
+
+        // Readouts
+        videoCtx.fillStyle = "#ffffff";
+        videoCtx.font = "bold 15px monospace";
+        videoCtx.fillText(Math.abs(speedKmh).toFixed(1), cx, cy - 8);
+
+        videoCtx.font = "9px monospace";
+        videoCtx.fillStyle = "rgba(255, 255, 255, 0.6)";
+        videoCtx.fillText("KM/H", cx, cy + 5);
+
+        // Gear display (with color based on gear state)
+        videoCtx.font = "bold 18px monospace";
+        if (gear === "D") {
+            videoCtx.fillStyle = "rgba(0, 255, 102, 0.9)";
+        } else if (gear === "R") {
+            videoCtx.fillStyle = "rgba(239, 68, 68, 0.9)";
+        } else {
+            videoCtx.fillStyle = "rgba(255, 170, 0, 0.9)";
+        }
+        videoCtx.fillText(`[${gear}]`, cx, cy + 28);
+
+        // 4. Nitro Boost Capacity Bar (Bottom Left)
+        const bx = 30;
+        const by = height - 55;
+        const bw = 150;
+        const bh = 12;
+
+        // Draw Boost glass container
+        videoCtx.fillStyle = "rgba(1, 3, 6, 0.65)";
+        videoCtx.fillRect(bx, by, bw, bh);
+        videoCtx.strokeStyle = "rgba(0, 229, 255, 0.25)";
+        videoCtx.lineWidth = 1;
+        videoCtx.strokeRect(bx, by, bw, bh);
+
+        // Fill capacity bar
+        const fillW = boostMeter * bw;
+        const boostGrad = videoCtx.createLinearGradient(bx, by, bx + bw, by);
+        boostGrad.addColorStop(0, "rgba(0, 212, 255, 0.4)");
+        boostGrad.addColorStop(1, "rgba(0, 229, 255, 0.85)");
+        videoCtx.fillStyle = boostGrad;
+        videoCtx.fillRect(bx + 1, by + 1, Math.max(0, fillW - 2), bh - 2);
+
+        // Boost Text label
+        videoCtx.textAlign = "left";
+        videoCtx.font = "bold 9px monospace";
+        videoCtx.fillStyle = "rgba(0, 229, 255, 0.9)";
+        videoCtx.fillText(`NITRO BOOST: ${(boostMeter * 100).toFixed(0)}%`, bx, by - 5);
+
+        // Draw visual boost charging flash
+        if (boostMeter < 1.0 && !driftActive) {
+            videoCtx.fillStyle = "rgba(0, 229, 255, 0.15)";
+            videoCtx.fillText("⚡ RECHARGING", bx + 110, by - 5);
+        }
+
+        videoCtx.restore();
     }
 
     requestAnimationFrame(drawTacticalHUD);

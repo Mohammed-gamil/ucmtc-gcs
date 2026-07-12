@@ -90,6 +90,8 @@ DEFAULT_TOPICS = {
     "mission_phase": {"label": "Mission Phase", "path": "/mission_phase"},
     "arm_status": {"label": "Arm Status", "path": "/arm_status"},
     "speed_limit": {"label": "Speed Limit", "path": "/speed_limit"},
+    "rover_hud": {"label": "Rover Racer HUD", "path": "/rover/hud"},
+    "wheel_cmds": {"label": "Wheel Commands", "path": "/wheel_cmds"},
 }
 
 topic_config = dict(DEFAULT_TOPICS)
@@ -124,33 +126,35 @@ def save_topic_config():
         print(f"[WARN] Failed to save topic config: {e}")
 
 def load_network_config():
+    config = {}
     if os.path.exists(NETWORK_CONFIG_FILE):
         try:
             with open(NETWORK_CONFIG_FILE, "r") as f:
                 config = json.load(f)
-                domain = str(config.get("domain", "0"))
-                discovery = str(config.get("discovery", "SUBNET"))
-                peer_id = str(config.get("peer_id", "gcs-operator"))
-                local_ip = str(config.get("local_ip", "127.0.0.1"))
-                
-                os.environ["ROS_DOMAIN_ID"] = domain
-                if discovery == "LOCALHOST":
-                    os.environ["ROS_LOCALHOST_ONLY"] = "1"
-                    os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "LOCALHOST"
-                elif discovery == "SUBNET":
-                    os.environ["ROS_LOCALHOST_ONLY"] = "0"
-                    os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
-                elif discovery == "OFF":
-                    os.environ["ROS_LOCALHOST_ONLY"] = "0"
-                    os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "OFF"
-                else:
-                    os.environ.pop("ROS_LOCALHOST_ONLY", None)
-                    os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SYSTEM_DEFAULT"
-                
-                get_global_connector(
-                    local_peer_id=peer_id,
-                    ros_domain_id=int(domain),
-                    enable_discovery=(discovery != "OFF")
-                )
         except Exception as e:
             print(f"[WARN] Failed to load network config: {e}")
+            
+    domain = str(config.get("domain", "32"))
+    discovery = str(config.get("discovery", "SUBNET"))
+    peer_id = str(config.get("peer_id", "gcs-operator"))
+    local_ip = str(config.get("local_ip", "127.0.0.1"))
+    
+    os.environ["ROS_DOMAIN_ID"] = domain
+    if discovery == "LOCALHOST":
+        os.environ["ROS_LOCALHOST_ONLY"] = "1"
+        os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "LOCALHOST"
+    elif discovery == "SUBNET":
+        os.environ["ROS_LOCALHOST_ONLY"] = "0"
+        os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SUBNET"
+    elif discovery == "OFF":
+        os.environ["ROS_LOCALHOST_ONLY"] = "0"
+        os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "OFF"
+    else:
+        os.environ.pop("ROS_LOCALHOST_ONLY", None)
+        os.environ["ROS_AUTOMATIC_DISCOVERY_RANGE"] = "SYSTEM_DEFAULT"
+    
+    get_global_connector(
+        local_peer_id=peer_id,
+        ros_domain_id=int(domain),
+        enable_discovery=(discovery != "OFF")
+    )

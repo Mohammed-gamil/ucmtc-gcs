@@ -39,6 +39,9 @@ setup(
             'vision_node=rover_core.vision_node:main',
             'motor_control_node=rover_core.motor_control_node:main',
             'telemetry_aggregator=rover_core.telemetry_aggregator:main',
+            'ps5_nfs_teleop=rover_core.ps5_nfs_teleop:main',
+            'cmd_vel_to_wheels=rover_core.cmd_vel_to_wheels:main',
+            'wheel_cmds_serial_bridge=rover_core.wheel_cmds_serial_bridge:main',
         ],
     },
 )
