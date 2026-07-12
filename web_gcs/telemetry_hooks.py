@@ -40,20 +40,42 @@ def my_telemetry_update_hook(name, data, timestamp):
             
         elif name in ("/imu", "/compass_imu"):
             sensors = latest.setdefault("Sensors", {})
-            sensors["imu"] = {
-                "available": True,
-                "accel_x": float(data.get("linear_acceleration", {}).get("x", 0.0)),
-                "accel_y": float(data.get("linear_acceleration", {}).get("y", 0.0)),
-                "accel_z": float(data.get("linear_acceleration", {}).get("z", 0.0)),
-                "gyro_x": float(data.get("angular_velocity", {}).get("x", 0.0)),
-                "gyro_y": float(data.get("angular_velocity", {}).get("y", 0.0)),
-                "gyro_z": float(data.get("angular_velocity", {}).get("z", 0.0)),
-            }
             ori = data.get("orientation", {})
             ox = float(ori.get("x", 0.0))
             oy = float(ori.get("y", 0.0))
             oz = float(ori.get("z", 0.0))
             ow = float(ori.get("w", 1.0))
+            
+            lin_acc = data.get("linear_acceleration", {})
+            lax = float(lin_acc.get("x", 0.0))
+            lay = float(lin_acc.get("y", 0.0))
+            laz = float(lin_acc.get("z", 0.0))
+            
+            ang_vel = data.get("angular_velocity", {})
+            avx = float(ang_vel.get("x", 0.0))
+            avy = float(ang_vel.get("y", 0.0))
+            avz = float(ang_vel.get("z", 0.0))
+            
+            sensors["imu"] = {
+                "available": True,
+                "orientation_x": ox,
+                "orientation_y": oy,
+                "orientation_z": oz,
+                "orientation_w": ow,
+                "angular_velocity_x": avx,
+                "angular_velocity_y": avy,
+                "angular_velocity_z": avz,
+                "linear_acceleration_x": lax,
+                "linear_acceleration_y": lay,
+                "linear_acceleration_z": laz,
+                # Fallback keys for compatibility
+                "accel_x": lax,
+                "accel_y": lay,
+                "accel_z": laz,
+                "gyro_x": avx,
+                "gyro_y": avy,
+                "gyro_z": avz,
+            }
             siny_cosp = 2.0 * (ow * oz + ox * oy)
             cosy_cosp = 1.0 - 2.0 * (oy * oy + oz * oz)
             yaw_rad = math.atan2(siny_cosp, cosy_cosp)

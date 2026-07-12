@@ -3971,5 +3971,33 @@ if (typeof io !== "undefined" && socket) {
 // Trigger registry fetch on boot
 document.addEventListener("DOMContentLoaded", () => {
     initTopicsTab();
+
+    // Theme Toggle Handler
+    const themeBtn = document.getElementById("btn-theme-toggle");
+    const themeIcon = document.getElementById("theme-icon");
+    
+    function updateThemeIcon(theme) {
+        if (themeIcon) {
+            if (theme === "light") {
+                themeIcon.className = "fa-solid fa-moon";
+            } else {
+                themeIcon.className = "fa-solid fa-sun";
+            }
+        }
+    }
+
+    if (themeBtn) {
+        themeBtn.addEventListener("click", () => {
+            const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
+            const newTheme = currentTheme === "dark" ? "light" : "dark";
+            document.documentElement.setAttribute("data-theme", newTheme);
+            localStorage.setItem("gcs-theme", newTheme);
+            updateThemeIcon(newTheme);
+        });
+    }
+
+    // Set initial icon on load
+    const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
+    updateThemeIcon(currentTheme);
 });
 

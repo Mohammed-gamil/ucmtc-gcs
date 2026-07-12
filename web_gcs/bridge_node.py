@@ -167,12 +167,23 @@ class WebGCSBridgeNode(Node):
                     latest["Sensors"] = {}
                 latest["Sensors"]["imu"] = {
                     "available": True,
-                    "accel_x": float(msg.linear_acceleration.x),
-                    "accel_y": float(msg.linear_acceleration.y),
-                    "accel_z": float(msg.linear_acceleration.z),
-                    "gyro_x": float(msg.angular_velocity.x),
-                    "gyro_y": float(msg.angular_velocity.y),
-                    "gyro_z": float(msg.angular_velocity.z),
+                    "orientation_x": float(msg.orientation.x) if hasattr(msg, "orientation") else 0.0,
+                    "orientation_y": float(msg.orientation.y) if hasattr(msg, "orientation") else 0.0,
+                    "orientation_z": float(msg.orientation.z) if hasattr(msg, "orientation") else 0.0,
+                    "orientation_w": float(msg.orientation.w) if hasattr(msg, "orientation") else 1.0,
+                    "angular_velocity_x": float(msg.angular_velocity.x) if hasattr(msg, "angular_velocity") else 0.0,
+                    "angular_velocity_y": float(msg.angular_velocity.y) if hasattr(msg, "angular_velocity") else 0.0,
+                    "angular_velocity_z": float(msg.angular_velocity.z) if hasattr(msg, "angular_velocity") else 0.0,
+                    "linear_acceleration_x": float(msg.linear_acceleration.x) if hasattr(msg, "linear_acceleration") else 0.0,
+                    "linear_acceleration_y": float(msg.linear_acceleration.y) if hasattr(msg, "linear_acceleration") else 0.0,
+                    "linear_acceleration_z": float(msg.linear_acceleration.z) if hasattr(msg, "linear_acceleration") else 0.0,
+                    # Fallback keys for backward compatibility
+                    "accel_x": float(msg.linear_acceleration.x) if hasattr(msg, "linear_acceleration") else 0.0,
+                    "accel_y": float(msg.linear_acceleration.y) if hasattr(msg, "linear_acceleration") else 0.0,
+                    "accel_z": float(msg.linear_acceleration.z) if hasattr(msg, "linear_acceleration") else 0.0,
+                    "gyro_x": float(msg.angular_velocity.x) if hasattr(msg, "angular_velocity") else 0.0,
+                    "gyro_y": float(msg.angular_velocity.y) if hasattr(msg, "angular_velocity") else 0.0,
+                    "gyro_z": float(msg.angular_velocity.z) if hasattr(msg, "angular_velocity") else 0.0,
                 }
                 telemetry_state["last_update"] = time.time()
         except Exception:

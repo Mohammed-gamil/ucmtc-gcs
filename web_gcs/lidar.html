@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GCS — LiDAR Telemetry Mapping</title>
+    <!-- Theme Init -->
+    <script>
+        (function() {
+            const theme = localStorage.getItem('gcs-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -230,7 +237,10 @@
         <div class="brand" style="color: var(--cyan);">
             <i class="fa-solid fa-circle-notch fa-spin"></i> LIVE LIDAR MAPPING
         </div>
-        <div class="status-badge" id="status-badge">
+        <div class="status-badge" id="status-badge" style="display: flex; align-items: center; gap: 12px;">
+            <button id="btn-theme-toggle" class="tab-btn" style="display: inline-flex; align-items: center; justify-content: center; min-width: 36px; padding: 0; height: 28px; background: none; border: 1px solid var(--border-dim); color: var(--text-bright); border-radius: 4px; cursor: pointer;" title="Toggle Day/Night Mode">
+                <i class="fa-solid fa-sun" id="theme-icon"></i>
+            </button>
             <span class="chip-dot d-offline" id="status-dot"></span>
             <span id="status-text">AWAITING SIGNAL</span>
         </div>
@@ -498,6 +508,30 @@
             requestAnimationFrame(animateSweep);
         }
         requestAnimationFrame(animateSweep);
+
+        const themeBtn = document.getElementById("btn-theme-toggle");
+        const themeIcon = document.getElementById("theme-icon");
+        
+        function updateThemeIcon(theme) {
+            if (themeIcon) {
+                if (theme === "light") {
+                    themeIcon.className = "fa-solid fa-moon";
+                } else {
+                    themeIcon.className = "fa-solid fa-sun";
+                }
+            }
+        }
+        
+        if (themeBtn) {
+            themeBtn.addEventListener("click", () => {
+                const currentTheme = document.documentElement.getAttribute("data-theme") || "dark";
+                const newTheme = currentTheme === "dark" ? "light" : "dark";
+                document.documentElement.setAttribute("data-theme", newTheme);
+                localStorage.setItem("gcs-theme", newTheme);
+                updateThemeIcon(newTheme);
+            });
+        }
+        updateThemeIcon(document.documentElement.getAttribute("data-theme") || "dark");
 
         // Custom check for SSE path /events
         const evtSource = new EventSource('/events');

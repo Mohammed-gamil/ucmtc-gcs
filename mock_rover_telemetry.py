@@ -451,7 +451,24 @@ class MockRoverTelemetryPublisher(Node):
             },
             "Sensors": {
                 "imu": {
-                    "available": False
+                    "available": True,
+                    "orientation_x": round(0.1 * math.sin(t), 6),
+                    "orientation_y": round(0.1 * math.cos(t), 6),
+                    "orientation_z": round(0.1 * math.sin(t * 0.5), 6),
+                    "orientation_w": round(0.95, 6),
+                    "angular_velocity_x": round(0.01 * math.sin(t), 6),
+                    "angular_velocity_y": round(0.01 * math.cos(t), 6),
+                    "angular_velocity_z": round(0.05 * math.sin(t * 0.2), 6),
+                    "linear_acceleration_x": round(0.05 * math.cos(t), 4),
+                    "linear_acceleration_y": round(0.05 * math.sin(t), 4),
+                    "linear_acceleration_z": round(9.81 + 0.1 * math.sin(t), 4),
+                    # Fallback keys for backward compatibility
+                    "accel_x": round(0.05 * math.cos(t), 4),
+                    "accel_y": round(0.05 * math.sin(t), 4),
+                    "accel_z": round(9.81 + 0.1 * math.sin(t), 4),
+                    "gyro_x": round(0.01 * math.sin(t), 6),
+                    "gyro_y": round(0.01 * math.cos(t), 6),
+                    "gyro_z": round(0.05 * math.sin(t * 0.2), 6),
                 },
                 "scan": {
                     "available": True,

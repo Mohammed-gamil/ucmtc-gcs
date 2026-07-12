@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GCS — Tactical Ground Control Station</title>
     <meta name="description" content="UCMTC Tactical Ground Control Station — real-time rover telemetry, ROS2 mesh, tactical camera HUD and mission command interface.">
+    <!-- Theme Init -->
+    <script>
+        (function() {
+            const theme = localStorage.getItem('gcs-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -48,6 +55,9 @@
             <a href="lidar.html" class="tab-btn" style="text-decoration: none; display: flex; align-items: center; justify-content: center;">
                 <i class="fa-solid fa-circle-dot"></i> LIDAR MAP
             </a>
+            <button id="btn-theme-toggle" class="tab-btn" style="display: flex; align-items: center; justify-content: center; min-width: 36px; padding: 0;" title="Toggle Day/Night Mode">
+                <i class="fa-solid fa-sun" id="theme-icon"></i>
+            </button>
         </div>
 
         <div class="topbar-center">

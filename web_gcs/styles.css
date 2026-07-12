@@ -1512,3 +1512,70 @@ body {
     transition: opacity 0.3s ease, color 0.3s ease;
 }
 
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ LIGHT THEME ━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+
+:root[data-theme="light"] {
+    /* Colors & Surface Tokens for Day/Sun visibility */
+    --bg-void:        #F3F4F6; /* light grey background */
+    --bg-panel:       #FFFFFF; /* white panels */
+    --bg-raised:      #E5E7EB; /* light grey active/elevated states */
+    --border-dim:     #D1D5DB; /* standard light border */
+    
+    /* High contrast indicators for sun visibility */
+    --cyan:           #006880; /* Darker Cyan for readability */
+    --amber:          #B45309; /* Darker Amber */
+    --red-alert:      #DC2626; /* Darker Red */
+    --green-op:       #059669; /* Darker Green */
+    
+    /* Text Hierarchy */
+    --text-bright:    #111827; /* Dark text for contrast */
+    --text-secondary: #4B5563; /* Medium dark text */
+    --text-dim:       #6B7280; /* Muted label text */
+}
+
+/* Light theme specific visual adjustments */
+:root[data-theme="light"] body {
+    color: var(--text-bright);
+    background-color: var(--bg-void);
+    background-image: 
+        linear-gradient(rgba(0, 0, 0, 0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 0, 0, 0.015) 1px, transparent 1px);
+}
+
+:root[data-theme="light"] .panel-red .diag-row:nth-child(even) { background: var(--bg-void); }
+:root[data-theme="light"] .panel-red .diag-row:nth-child(odd) { background: var(--bg-panel); }
+
+:root[data-theme="light"] .panel-cyan,
+:root[data-theme="light"] .panel-green,
+:root[data-theme="light"] .panel-amber,
+:root[data-theme="light"] .panel-red,
+:root[data-theme="light"] .panel-blue,
+:root[data-theme="light"] .panel-teal {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+}
+
+:root[data-theme="light"] .tab-btn.active {
+    background: var(--bg-raised);
+    color: var(--cyan);
+}
+
+:root[data-theme="light"] .topbar {
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+}
+
+:root[data-theme="light"] .btn-estop-pill {
+    color: #ffffff;
+}
+
+:root[data-theme="light"] .btn-filter.active {
+    background: var(--cyan);
+    color: #ffffff;
+}
+
+:root[data-theme="light"] input,
+:root[data-theme="light"] select,
+:root[data-theme="light"] textarea {
+    background: var(--bg-void);
+    color: var(--text-bright);
+}
+

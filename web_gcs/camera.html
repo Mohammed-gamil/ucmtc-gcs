@@ -4,6 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>GCS — Direct Camera Uplink</title>
+    <!-- Theme Init -->
+    <script>
+        (function() {
+            const theme = localStorage.getItem('gcs-theme') || 'dark';
+            document.documentElement.setAttribute('data-theme', theme);
+        })();
+    </script>
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -177,6 +184,9 @@
             <!-- SSE Connection Status in Topbar -->
             <div class="conn" style="display: flex; align-items: center; gap: 8px;">
                 <button id="btn-toggle-cam-topic" class="btn-filter" style="border-color: var(--amber); color: var(--amber); margin-right: 4px; font-size: 10px; padding: 4px 10px; height: auto;">STREAM: COMPRESSED</button>
+                <button id="btn-theme-toggle" class="tab-btn" style="display: flex; align-items: center; justify-content: center; min-width: 36px; padding: 0; height: 28px;" title="Toggle Day/Night Mode">
+                    <i class="fa-solid fa-sun" id="theme-icon"></i>
+                </button>
                 <div class="status-pill" id="statusPill" style="display: flex; align-items: center; gap: 6px; font-size: 10px; font-family: var(--font-mono); border: 1px solid var(--border-dim); border-radius: 14px; padding: 4px 10px; background: var(--bg-void);">
                     <span class="chip-dot d-offline" id="statusDot"></span>
                     <span id="statusText" style="text-transform: uppercase;">offline</span>
@@ -284,6 +294,31 @@
         const noSignal=$('noSignal'), liveTag=$('liveTag');
         const statbar=$('statbar'), statRes=$('statRes'), statFps=$('statFps'), statLat=$('statLat');
         const logEl=$('log'), activeTopicLabel=$('activeTopicLabel'), activeTopicLabelVal=$('activeTopicLabelVal');
+
+        // Theme Toggle Logic
+        const themeBtn = $('btn-theme-toggle');
+        const themeIcon = $('theme-icon');
+        
+        function updateThemeIcon(theme) {
+            if (themeIcon) {
+                if (theme === 'light') {
+                    themeIcon.className = 'fa-solid fa-moon';
+                } else {
+                    themeIcon.className = 'fa-solid fa-sun';
+                }
+            }
+        }
+        
+        if (themeBtn) {
+            themeBtn.addEventListener('click', () => {
+                const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('gcs-theme', newTheme);
+                updateThemeIcon(newTheme);
+            });
+        }
+        updateThemeIcon(document.documentElement.getAttribute('data-theme') || 'dark');
 
         let lastReceived=0, frameTimes=[];
         let isConnected=false;
