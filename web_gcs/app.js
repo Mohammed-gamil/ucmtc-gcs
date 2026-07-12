@@ -2758,7 +2758,7 @@ function drawLidarScan() {
             // 1. IMU status
             const imuState = getFreshnessState("imu");
             let imuVal = "OFFLINE";
-            if (imuState !== "NO_SIGNAL" && latestTelemetryPayload.Sensors && latestTelemetryPayload.Sensors.imu) {
+            if (imuState !== "NO_SIGNAL" && latestTelemetryPayload.Sensors && latestTelemetryPayload.Sensors.imu && typeof latestTelemetryPayload.Sensors.imu.accel_x === "number" && typeof latestTelemetryPayload.Sensors.imu.accel_y === "number") {
                 const imu = latestTelemetryPayload.Sensors.imu;
                 imuVal = `${imu.accel_x.toFixed(2)},${imu.accel_y.toFixed(2)}`;
                 if (imuState === "STALE") imuVal = "STALE";
@@ -2768,7 +2768,7 @@ function drawLidarScan() {
             // 2. Odom position
             const odomState = getFreshnessState("odom");
             let odomVal = "OFFLINE";
-            if (odomState !== "NO_SIGNAL" && latestTelemetryPayload.Odom) {
+            if (odomState !== "NO_SIGNAL" && latestTelemetryPayload.Odom && typeof latestTelemetryPayload.Odom.pos_x === "number" && typeof latestTelemetryPayload.Odom.pos_y === "number") {
                 odomVal = `${latestTelemetryPayload.Odom.pos_x.toFixed(1)},${latestTelemetryPayload.Odom.pos_y.toFixed(1)} m`;
                 if (odomState === "STALE") odomVal = "STALE";
             }
@@ -2777,7 +2777,7 @@ function drawLidarScan() {
             // 3. CmdVel Echo
             const cmdVelState = getFreshnessState("cmdVel");
             let cmdVelVal = "OFFLINE";
-            if (cmdVelState !== "NO_SIGNAL" && latestTelemetryPayload.CmdVelEcho) {
+            if (cmdVelState !== "NO_SIGNAL" && latestTelemetryPayload.CmdVelEcho && typeof latestTelemetryPayload.CmdVelEcho.linear_x === "number" && typeof latestTelemetryPayload.CmdVelEcho.angular_z === "number") {
                 cmdVelVal = `${latestTelemetryPayload.CmdVelEcho.linear_x.toFixed(2)},${latestTelemetryPayload.CmdVelEcho.angular_z.toFixed(2)}`;
                 if (cmdVelState === "STALE") cmdVelVal = "STALE";
             }
@@ -2795,7 +2795,7 @@ function drawLidarScan() {
             // 5. Battery State
             const batState = getFreshnessState("battery");
             let batVal = "OFFLINE";
-            if (batState !== "NO_SIGNAL" && latestTelemetryPayload.Battery) {
+            if (batState !== "NO_SIGNAL" && latestTelemetryPayload.Battery && typeof latestTelemetryPayload.Battery.voltage === "number") {
                 batVal = `${latestTelemetryPayload.Battery.voltage.toFixed(1)}V`;
                 if (batState === "STALE") batVal = "STALE";
             }
@@ -3781,6 +3781,19 @@ socket.on("telemetry_binary_update", (binaryData) => {
             eventSource.close();
             eventSource = null;
             _sseActive = false;
+        }
+        
+        // Set camera stream source dynamically if connected
+        if (data.connected) {
+            const camPath = (gcsTopics && gcsTopics["image_recognition"] && gcsTopics["image_recognition"].path) ? gcsTopics["image_recognition"].path : "/rgb/image_raw/compressed";
+            const streamUrl = `/api/topics${camPath}/stream`;
+            if (!cameraImage.src.endsWith(streamUrl)) {
+                cameraImage.src = streamUrl;
+            }
+        } else {
+            if (!cameraImage.src.endsWith("rover_camera_feed.jpg")) {
+                cameraImage.src = "rover_camera_feed.jpg";
+            }
         }
         
         // Update the GCS dashboard

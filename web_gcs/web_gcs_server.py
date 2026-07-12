@@ -16,15 +16,20 @@ import threading
 import time
 from typing import Any
 
+# Ensure correct path loading before any relative/package imports
+WORKSPACE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if WORKSPACE_DIR not in sys.path:
+    sys.path.insert(0, WORKSPACE_DIR)
+
 # Import modular server state and configurations
 from web_gcs.server_state import (
-    WORKSPACE_DIR, ROVER_SRC_DIR, STATIC_DIR, PORT,
+    ROVER_SRC_DIR, STATIC_DIR, PORT,
     data_lock, telemetry_state, sim_estop_triggered,
     command_publisher, cmd_vel_publisher, ROS_AVAILABLE,
     DEFAULT_TOPICS, TOPIC_CONFIG_FILE, NETWORK_CONFIG_FILE,
     load_topic_config, save_topic_config, load_network_config,
     get_global_connector, shutdown_global_connector, _get_bridge_node,
-    COMMAND_QOS, RELIABLE_QOS, Node, String
+    COMMAND_QOS, RELIABLE_QOS, Node, String, rclpy
 )
 
 # Preserving legacy classes for unit test compatibility
@@ -533,14 +538,10 @@ def main(args=None):
         import web_gcs.server_state as ss
         ss._bridge_node = WebGCSBridgeNode()
         
-        # Start a thread to spin the ROS2 executor
-        def ros_spin():
-            try:
-                rclpy.spin(ss._bridge_node)
-            except Exception:
-                pass
-        t_spin = threading.Thread(target=ros_spin, daemon=True)
-        t_spin.start()
+        # Start the metadata-driven RosBridge subscriber worker thread
+        from web_gcs.ros_subscriber import RosBridge
+        ros_bridge = RosBridge(ss._bridge_node, out_queue)
+        ros_bridge.start()
         
     # Run Flask server
     run_http_server()
